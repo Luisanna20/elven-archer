@@ -250,12 +250,27 @@ function startFinalSequence(){
 
 /* ── draw ── */
 const drawStart=()=>ctx.drawImage(startImg,0,0,canvas.width,canvas.height);
+function drawContinueHint() {
+  const MARGIN = 15;              // отступ от краёв
+  const RECT_W = 300, RECT_H = 40;
+
+  const x = canvas.width  - RECT_W - MARGIN;
+  const y = canvas.height - RECT_H - MARGIN;
+
+  ctx.fillStyle = 'rgba(0,0,0,.45)';
+  ctx.fillRect(x, y, RECT_W, RECT_H);
+
+  ctx.fillStyle = '#fff';
+  ctx.font = '22px monospace';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'bottom';    // базовая линия текста — нижний край
+  ctx.fillText('Click to continue', canvas.width - MARGIN, canvas.height - MARGIN);
+}
+
 
 function drawStory(){
   ctx.drawImage(storyImg[idx],0,0,canvas.width,canvas.height);
-  ctx.fillStyle='rgba(0,0,0,.45)'; ctx.fillRect(canvas.width-310,canvas.height-15,300,40);
-  ctx.fillStyle='#fff'; ctx.font='22px monospace'; ctx.textAlign='right';
-  ctx.fillText('Click to continue',canvas.width-15,canvas.height-15);
+ drawContinueHint();
 
   if(fadeDir){
     fadeScr+=fadeDir*0.05;
@@ -419,9 +434,7 @@ function drawEndSlides(){
     const dx=Math.floor((canvas.width-dw)/2), dy=Math.floor((canvas.height-dh)/2);
     ctx.drawImage(img,dx,dy,dw,dh);
   }
-  ctx.fillStyle='rgba(0,0,0,.45)'; ctx.fillRect(canvas.width-310,canvas.height-15,300,40);
-  ctx.fillStyle='#fff'; ctx.font='22px monospace'; ctx.textAlign='right';
-  ctx.fillText('Click to continue',canvas.width-15,canvas.height-15);
+drawContinueHint();
 
   if(endFadeDir!==0){
     endFade+=endFadeDir*0.05; endFade=Math.max(0,Math.min(1,endFade));

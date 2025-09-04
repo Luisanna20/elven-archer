@@ -22,12 +22,14 @@ addEventListener('resize',autoscale); autoscale();
 
 /* ── canvas + helper ── */
 const canvas=document.getElementById('gameCanvas'), ctx=canvas.getContext('2d');
+ctx.imageSmoothingEnabled=false; // кристальная пиксельность
 const I=s=>{const i=new Image();i.src=s;return i;};
 
 /* ── images ── */
 const startImg=I('StartPage.png'),  bgImg =I('background.png');
 const elfR   =I('elf.png'),          elfL  =I('elf1.png');
 const bugFr  =[I('bug.png'),I('bug1.png')];
+const shadowImg=I('shadow.png'); // ← спрайт овальной тени
 let bugFrame=0; setInterval(()=>bugFrame^=1,150);
 
 const bossIdle=I('boss001.png'), bossHit=I('boss002.png');
@@ -39,7 +41,7 @@ const storyImg=[1,2,3,4,5,6].map(n=>I(`StoryPage00${n}.png`));
 
 /* ── финальная сцена: новые ассеты ── */
 const katImg = I('katarina.png');
-const hugImg = I('ket_miri.png');
+const hugImg = I('ket+miri.png');
 const endImg = [1,2,3].map(n=>I(`endpage00${n}.png`)); // endpage001..003
 
 /* ── music ── */
@@ -129,6 +131,27 @@ canvas.addEventListener('click',()=>{
 const hit=(a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
 const lose=()=>{if(--lives<=0) gameOver=true;};
 
+/* ── тени: универсальный овал ── */
+function drawShadow(x,y,w,h,kx=0.70,ky=0.22,yOffset=6, alpha=0.65, angle=0){
+  // kx — базовая «ширина» овала от ширины спрайта (до поворота)
+  // ky — базовая «высота» овала от высоты спрайта (до поворота)
+  if(!(shadowImg.complete && shadowImg.naturalWidth)) return;
+  const sw = Math.max(12, Math.floor(w*kx));   // ширина овала ДО поворота
+  const sh = Math.max(4,  Math.floor(h*ky));   // высота овала ДО поворота
+  const cx = Math.floor(x + w/2);
+  const cy = Math.floor(y + h - yOffset);
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+  // Рисуем овал относительно центра: при angle=0 — обычная горизонтальная тень,
+  // при angle=Math.PI/2 — «вертикальная» (поменяются местами оси).
+  ctx.drawImage(shadowImg, -sw/2, -sh/2, sw, sh);
+  ctx.restore();
+}
+
+
 /* ── update (игровой) ── */
 function update(){
   if((phase!=='game'&&phase!=='boss')||gameOver) return;
@@ -198,11 +221,23 @@ function update(){
 /* ── spawn bugs ── */
 setInterval(()=>{
   if(phase!=='game'||gameOver) return;
-  bugCnt++; const speed=1.5+Math.random()*2.5;
-  const b={x:60+Math.random()*(canvas.width-165),y:0,w:45,h:45,dy:speed};
+  bugCnt++;
+  const speed=1.5+Math.random()*2.5;
+
+  const LANE_LEFT = 130;
+  const LANE_RIGHT = canvas.width - 130;
+  const BW = 45, BH = 45;
+
+  const b = {
+    x: Math.floor(LANE_LEFT + Math.random()*(LANE_RIGHT - LANE_LEFT - BW)),
+    y: 0, w: BW, h: BH, dy: speed
+  };
   bugs.push(b);
-  if(bugCnt%7===0) spits.push({x:b.x+16,y:b.y+b.h,w:24,h:24,dy:speed+2});
+
+  if(bugCnt%7===0)
+    spits.push({x:b.x+16,y:b.y+b.h,w:24,h:24,dy:speed+2});
 },1000);
+
 
 /* ── boss start ── */
 function startBoss(){
@@ -213,10 +248,8 @@ function startBoss(){
 
 /* ── финал: от смерти босса к кат-сцене ── */
 function startFinalSequence(){
-  // не возвращаемся в game; остаёмся на замороженной сцене
   phase='postBoss';
-  fade(musBoss,0); fade(musVictory,.75); // включаем финальную музыку
-  // фиксируем объекты как есть; начальные параметры мигания/растворения
+  fade(musBoss,0); fade(musVictory,.75);
   end = {
     mode:'blink', // blink -> fadeBoss -> reunion
     t:performance.now(),
@@ -232,7 +265,7 @@ function drawStory(){
   ctx.drawImage(storyImg[idx],0,0,canvas.width,canvas.height);
   ctx.fillStyle='rgba(0,0,0,.4)'; ctx.fillRect(canvas.width-310,canvas.height-65,300,40);
   ctx.fillStyle='#fff'; ctx.font='22px monospace'; ctx.textAlign='right';
-  ctx.fillText('Click to continue',canvas.width-30,canvas.height-37);
+  ctx.fillText('Click to continue',canvas.width-30,canvas.height-197);
 
   if(fadeDir){
     fadeScr+=fadeDir*0.05;
@@ -245,17 +278,28 @@ function drawStory(){
 
 function drawGame(){
   ctx.drawImage(bgImg,0,0,canvas.width,canvas.height);
+
+  // Эльфийка
+  drawShadow(elf.x, elf.y, elf.w, elf.h);
   ctx.drawImage(elf.img,elf.x,elf.y,elf.w,elf.h);
 
+  // Стрелы
   arrows.forEach(a=>arrowReady? ctx.drawImage(arrowImg,a.x,a.y,a.w,a.h)
                               : (ctx.fillStyle='yellow',ctx.fillRect(a.x,a.y,a.w,a.h)));
 
-  bugs.forEach(b=>ctx.drawImage(bugFr[bugFrame],b.x,b.y,b.w,b.h));
+  // Жуки
+  bugs.forEach(b=>{
+    drawShadow(b.x + 5, b.y, b.w, b.h, 0.85, 2.00, 13, 0.60, Math.PI/2);
+    ctx.drawImage(bugFr[bugFrame],b.x,b.y,b.w,b.h);
+  });
+
+  // Плевки
   spits.forEach(s=>ctx.drawImage(poisonImg,s.x,s.y,s.w,s.h));
 
-  // Босса рисуем тут, но пропускаем в postBoss — там отрисуем вручную с альфой/миганием
+  // Босс (в этой фазе)
   if(boss && phase!=='postBoss'){
     const img=(boss.hitFlash>0 && boss.hitFlash%4<2)?bossHit:bossIdle;
+    drawShadow(boss.x, boss.y, boss.w, boss.h, 0.90, 0.22, 10);
     ctx.drawImage(img,boss.x,boss.y,boss.w,boss.h);
     if(boss.hitFlash>0) boss.hitFlash--;
 
@@ -270,8 +314,8 @@ function drawGame(){
     ctx.fillText(boss.name,boss.x+boss.w/2,boss.y-26);
   }
 
+  // HUD
   for(let i=0;i<lives;i++) ctx.drawImage(heartImg,20+i*50,20,40,40);
-
   ctx.fillStyle='#fff'; ctx.font='26px monospace'; ctx.textAlign='right';
   ctx.fillText('Score: '+score,canvas.width-20,46);
 
@@ -283,13 +327,21 @@ function drawGame(){
 
 /* ── postBoss: мигание и растворение босса ── */
 function drawPostBoss(){
-  // рисуем всю сцену как в игре (без логики), но босс — вручную
-  // (drawGame уже пропустит рисование босса в этом фазе)
   ctx.drawImage(bgImg,0,0,canvas.width,canvas.height);
-  // враги/снаряды «заморожены»: просто отрисуем их, не двигая
-  bugs.forEach(b=>ctx.drawImage(bugFr[bugFrame],b.x,b.y,b.w,b.h));
+
+  // Замороженные жуки и плевки
+  bugs.forEach(b=>{
+    drawShadow(b.x, b.y, b.w, b.h, 0.70, 0.20, 4);
+    ctx.drawImage(bugFr[bugFrame],b.x,b.y,b.w,b.h);
+  });
   spits.forEach(s=>ctx.drawImage(poisonImg,s.x,s.y,s.w,s.h));
-  ctx.drawImage(elf.img,elf.x,elf.y,elf.w,elf.h);
+
+ // Эльфийка (чуть длиннее тень и лёгкий поворот)
+const ang = (elf.img===elfL ? -0.12 : 0.12); // ~7° влево/вправо
+drawShadow(elf.x, elf.y, elf.w, elf.h, 0.78, 1.52, 2, 0.72, ang);
+ctx.drawImage(elf.img, elf.x, elf.y, elf.w, elf.h);
+
+  // HUD
   for(let i=0;i<lives;i++) ctx.drawImage(heartImg,20+i*50,20,40,40);
   ctx.fillStyle='#fff'; ctx.font='26px monospace'; ctx.textAlign='right';
   ctx.fillText('Score: '+score,canvas.width-20,46);
@@ -301,7 +353,6 @@ function drawPostBoss(){
   if(end.mode==='blink'){
     if(now-end.t>=end.blinkEvery){
       end.t=now;
-      // переключаем кадр удара визуально через hit-спрайт
       boss._blinkOn = !boss._blinkOn;
       end.blinks++;
       if(end.blinks>=end.maxBlinks){ end.mode='fadeBoss'; end.t=now; }
@@ -310,7 +361,6 @@ function drawPostBoss(){
     const k=Math.min(1,(now-end.t)/end.bossFadeMs);
     end.bossAlpha=1-k;
     if(end.bossAlpha<=0){
-      // переходим к встрече
       end=null;
       startReunion();
       return;
@@ -320,6 +370,7 @@ function drawPostBoss(){
   const img = (end && end.mode==='blink' && boss._blinkOn) ? bossHit : bossIdle;
   ctx.save();
   ctx.globalAlpha = (end?end.bossAlpha:1);
+  drawShadow(boss.x, boss.y, boss.w, boss.h, 0.90, 0.22, 10);
   ctx.drawImage(img,boss.x,boss.y,boss.w,boss.h);
   ctx.restore();
 }
@@ -327,10 +378,9 @@ function drawPostBoss(){
 /* ── reunion: Катарина сверху, эльфийка снизу, затем общий спрайт ── */
 function startReunion(){
   phase='reunion';
-  // очистим мусор сцены, чтобы не отвлекал
   arrows.length=0; bugs.length=0; spits.length=0;
 
-  const meetY = Math.floor(canvas.height*0.58); // точка встречи
+  const meetY = Math.floor(canvas.height*0.58);
   reunion = {
     mode:'runToMeet', // runToMeet -> hug -> fadeToBlack
     speed:3.2,
@@ -341,39 +391,37 @@ function startReunion(){
 }
 
 function drawReunion(){
-  // фон
   ctx.drawImage(bgImg,0,0,canvas.width,canvas.height);
 
   if(reunion.mode==='runToMeet'){
-    // движения навстречу
     if(elf.y>reunion.meetY) elf.y -= reunion.speed;
     if(reunion.kat.y<reunion.meetY-48) reunion.kat.y += reunion.speed;
 
-    // рисуем бегущих
+    drawShadow(reunion.kat.x, reunion.kat.y, reunion.kat.w, reunion.kat.h, 0.70, 0.20, 5);
     ctx.drawImage(katImg, reunion.kat.x, reunion.kat.y, reunion.kat.w, reunion.kat.h);
+
+    drawShadow(elf.x, elf.y, elf.w, elf.h);
     ctx.drawImage(elf.img, elf.x, elf.y, elf.w, elf.h);
 
-    // встреча
     if(elf.y<=reunion.meetY && reunion.kat.y>=reunion.meetY-48){
       reunion.mode='hug'; reunion.hugT=performance.now();
     }
 
   } else if(reunion.mode==='hug'){
-    // позиционируем общий спрайт в центре встречи
-    const hx = Math.floor(elf.x+elf.w/2-64); // hugImg около 128x128? скорректируем рисованием 96x96
+    const hx = Math.floor(elf.x+elf.w/2-64);
     const hy = Math.floor(reunion.meetY-72);
+    drawShadow(hx, hy, 128, 128, 0.85, 0.18, 8);
     ctx.drawImage(hugImg, hx, hy, 128, 128);
 
-    // спустя паузу начинаем затемнение
     if(performance.now()-reunion.hugT>900){
       reunion.mode='fadeToBlack';
-      endFade=0; endFadeDir=1; // наращиваем к чёрному
+      endFade=0; endFadeDir=1;
     }
 
   } else if(reunion.mode==='fadeToBlack'){
-    // держим обнимашки под затемнением
     const hx = Math.floor(elf.x+elf.w/2-64);
     const hy = Math.floor(reunion.meetY-72);
+    drawShadow(hx, hy, 128, 128, 0.85, 0.18, 8);
     ctx.drawImage(hugImg, hx, hy, 128, 128);
 
     endFade = Math.min(1, endFade + 0.04);
@@ -381,36 +429,29 @@ function drawReunion(){
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
     if(endFade>=1){
-      // переходим к финальным слайдам
       phase='endSlides';
-      endIdx=0; endFade=1; endFadeDir=-1; // выходим из чёрного к первому слайду
+      endIdx=0; endFade=1; endFadeDir=-1;
     }
   }
 }
 
-/* ── финальные слайды EndPage001..003 ── */
+/* ── финальные слайды ── */
 function drawEndSlides(){
-  // подложка чёрная
   ctx.fillStyle='#000'; ctx.fillRect(0,0,canvas.width,canvas.height);
 
   const img = endImg[endIdx];
-  if(img && img.complete){
-    // впишем картинку целиком
-    const scale = Math.min(canvas.width/img.width, canvas.height/img.height);
-    const dw = Math.floor(img.width*scale);
-    const dh = Math.floor(img.height*scale);
-    const dx = Math.floor((canvas.width - dw)/2);
-    const dy = Math.floor((canvas.height - dh)/2);
+  if(img && img.complete && img.naturalWidth){
+    const scale=Math.min(canvas.width/img.width, canvas.height/img.height);
+    const dw=Math.floor(img.width*scale), dh=Math.floor(img.height*scale);
+    const dx=Math.floor((canvas.width - dw)/2), dy=Math.floor((canvas.height - dh)/2);
     ctx.drawImage(img, dx, dy, dw, dh);
   }
 
-  // подсказка
   ctx.fillStyle='rgba(0,0,0,.45)';
   ctx.fillRect(canvas.width-310,canvas.height-65,300,40);
   ctx.fillStyle='#fff'; ctx.font='22px monospace'; ctx.textAlign='right';
-  ctx.fillText('Click to continue',canvas.width-30,canvas.height-37);
+  ctx.fillText('Click to continue',canvas.width-30,canvas.height-197);
 
-  // затемнение/проявление
   if(endFadeDir!==0){
     endFade += endFadeDir*0.05;
     endFade = Math.max(0,Math.min(1,endFade));
@@ -418,15 +459,14 @@ function drawEndSlides(){
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
     if(endFade>=1 && endFadeDir>0){
-      // переходим к следующему слайду либо в титры
       endIdx++;
       if(endIdx>=endImg.length){
         phase='credits';
       }else{
-        endFadeDir=-1; // проявляем следующий
+        endFadeDir=-1;
       }
     } else if(endFade<=0 && endFadeDir<0){
-      endFadeDir=0; // проявление завершено
+      endFadeDir=0;
     }
   }
 }
@@ -435,13 +475,9 @@ function drawEndSlides(){
 function drawCredits(){
   ctx.fillStyle='#000'; ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  // Лёгкий «пульс» текста
-  const t = (performance.now()/1000)%2;
-  const pulse = 0.85 + 0.15*Math.sin(t*Math.PI);
+  const t=(performance.now()/1000)%2, pulse=0.85+0.15*Math.sin(t*Math.PI);
 
-  ctx.fillStyle='#fff';
-  ctx.textAlign='center';
-
+  ctx.fillStyle='#fff'; ctx.textAlign='center';
   ctx.font=`${Math.floor(42*pulse)}px monospace`;
   ctx.fillText('THE END', canvas.width/2, 150);
 
@@ -471,26 +507,21 @@ function drawCredits(){
 
 /* ── reset (возврат в самое начало) ── */
 function resetGame(){
-  // музыка
   fade(musVictory,0);
   fade(musMenu,.6);
 
-  // базовые стейты
   phase='menu';
-  audioUnlocked=true; // уже открывали
+  audioUnlocked=true;
   ignoreNextClick=false;
 
-  // история/игра
   idx=0; fadeScr=0; fadeDir=0;
   keys={}; lives=3; score=0; gameOver=false;
   lastShot=0; bugCnt=0;
 
-  // сущности
   elf.x=336; elf.y=920-48-40; elf.img=elfR;
   arrows.length=0; bugs.length=0; spits.length=0;
   boss=null; bossHp=25; bossAppearing=true;
 
-  // финал
   end=null; reunion=null; endIdx=0; endFade=0; endFadeDir=0;
 }
 </script>

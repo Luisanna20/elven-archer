@@ -39,9 +39,13 @@ const arrowImg=I('arrow.png'); let arrowReady=false; arrowImg.onload=()=>arrowRe
 const poisonImg=I('poison.png');
 const storyImg=[1,2,3,4,5,6].map(n=>I(`StoryPage00${n}.png`));
 
-/* ── финальная сцена: новые ассеты ── */
-const katImg = I('katarina.png');
-const hugImg = I('ket_miri.png');
+/* ── финальная сцена: ассеты + антикэш ── */
+const ASSETS = Object.freeze({
+  kat: 'katarina.png?v=7',
+  hug: 'ket_miri.png?v=7'
+});
+const katImg = I(ASSETS.kat);
+const hugImg = I(ASSETS.hug);
 const endImg = [1,2,3].map(n=>I(`endpage00${n}.png`)); // endpage001..003
 
 /* ── music ── */
@@ -130,27 +134,23 @@ canvas.addEventListener('click',()=>{
 /* ── helpers ── */
 const hit=(a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
 const lose=()=>{if(--lives<=0) gameOver=true;};
+// безопасная проверка рисунка
+const ready = img => img && img.complete && img.naturalWidth > 0;
 
 /* ── тени: универсальный овал ── */
 function drawShadow(x,y,w,h,kx=0.70,ky=0.22,yOffset=6, alpha=0.65, angle=0){
-  // kx — базовая «ширина» овала от ширины спрайта (до поворота)
-  // ky — базовая «высота» овала от высоты спрайта (до поворота)
   if(!(shadowImg.complete && shadowImg.naturalWidth)) return;
-  const sw = Math.max(12, Math.floor(w*kx));   // ширина овала ДО поворота
-  const sh = Math.max(4,  Math.floor(h*ky));   // высота овала ДО поворота
+  const sw = Math.max(12, Math.floor(w*kx));
+  const sh = Math.max(4,  Math.floor(h*ky));
   const cx = Math.floor(x + w/2);
   const cy = Math.floor(y + h - yOffset);
-
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.translate(cx, cy);
   ctx.rotate(angle);
-  // Рисуем овал относительно центра: при angle=0 — обычная горизонтальная тень,
-  // при angle=Math.PI/2 — «вертикальная» (поменяются местами оси).
   ctx.drawImage(shadowImg, -sw/2, -sh/2, sw, sh);
   ctx.restore();
 }
-
 
 /* ── update (игровой) ── */
 function update(){
@@ -336,10 +336,10 @@ function drawPostBoss(){
   });
   spits.forEach(s=>ctx.drawImage(poisonImg,s.x,s.y,s.w,s.h));
 
- // Эльфийка (чуть длиннее тень и лёгкий поворот)
-const ang = (elf.img===elfL ? -0.12 : 0.12); // ~7° влево/вправо
-drawShadow(elf.x, elf.y, elf.w, elf.h, 0.78, 1.52, 2, 0.72, ang);
-ctx.drawImage(elf.img, elf.x, elf.y, elf.w, elf.h);
+  // Эльфийка (чуть длиннее тень и лёгкий поворот)
+  const ang = (elf.img===elfL ? -0.12 : 0.12); // ~7° влево/вправо
+  drawShadow(elf.x, elf.y, elf.w, elf.h, 0.78, 1.52, 2, 0.72, ang);
+  ctx.drawImage(elf.img, elf.x, elf.y, elf.w, elf.h);
 
   // HUD
   for(let i=0;i<lives;i++) ctx.drawImage(heartImg,20+i*50,20,40,40);
@@ -380,6 +380,10 @@ function startReunion(){
   phase='reunion';
   arrows.length=0; bugs.length=0; spits.length=0;
 
+  // прогреть декодирование ассетов сцены встречи
+  katImg.decode?.().catch(()=>{});
+  hugImg.decode?.().catch(()=>{});
+
   const meetY = Math.floor(canvas.height*0.58);
   reunion = {
     mode:'runToMeet', // runToMeet -> hug -> fadeToBlack
@@ -398,10 +402,10 @@ function drawReunion(){
     if(reunion.kat.y<reunion.meetY-48) reunion.kat.y += reunion.speed;
 
     drawShadow(reunion.kat.x, reunion.kat.y, reunion.kat.w, reunion.kat.h, 0.70, 0.20, 5);
-    ctx.drawImage(katImg, reunion.kat.x, reunion.kat.y, reunion.kat.w, reunion.kat.h);
+    if (ready(katImg)) ctx.drawImage(katImg, reunion.kat.x, reunion.kat.y, reunion.kat.w, reunion.kat.h);
 
     drawShadow(elf.x, elf.y, elf.w, elf.h);
-    ctx.drawImage(elf.img, elf.x, elf.y, elf.w, elf.h);
+    if (ready(elf.img)) ctx.drawImage(elf.img, elf.x, elf.y, elf.w, elf.h);
 
     if(elf.y<=reunion.meetY && reunion.kat.y>=reunion.meetY-48){
       reunion.mode='hug'; reunion.hugT=performance.now();
@@ -410,19 +414,37 @@ function drawReunion(){
   } else if(reunion.mode==='hug'){
     const hx = Math.floor(elf.x+elf.w/2-64);
     const hy = Math.floor(reunion.meetY-72);
-    drawShadow(hx, hy, 128, 128, 0.85, 0.18, 8);
-    ctx.drawImage(hugImg, hx, hy, 128, 128);
 
-    if(performance.now()-reunion.hugT>900){
-      reunion.mode='fadeToBlack';
-      endFade=0; endFadeDir=1;
+    if (ready(hugImg)) {
+      drawShadow(hx, hy, 128, 128, 0.85, 0.18, 8);
+      ctx.drawImage(hugImg, hx, hy, 128, 128);
+
+      if(performance.now()-reunion.hugT>900){
+        reunion.mode='fadeToBlack';
+        endFade=0; endFadeDir=1;
+      }
+    } else {
+      // Фолбек: пока спрайт объятий не загрузился — рисуем обеих
+      drawShadow(reunion.kat.x, reunion.kat.y, reunion.kat.w, reunion.kat.h, 0.70, 0.20, 5);
+      if (ready(katImg)) ctx.drawImage(katImg, reunion.kat.x, reunion.kat.y, reunion.kat.w, reunion.kat.h);
+      drawShadow(elf.x, elf.y, elf.w, elf.h);
+      if (ready(elf.img)) ctx.drawImage(elf.img, elf.x, elf.y, elf.w, elf.h);
     }
 
   } else if(reunion.mode==='fadeToBlack'){
     const hx = Math.floor(elf.x+elf.w/2-64);
     const hy = Math.floor(reunion.meetY-72);
-    drawShadow(hx, hy, 128, 128, 0.85, 0.18, 8);
-    ctx.drawImage(hugImg, hx, hy, 128, 128);
+
+    if (ready(hugImg)) {
+      drawShadow(hx, hy, 128, 128, 0.85, 0.18, 8);
+      ctx.drawImage(hugImg, hx, hy, 128, 128);
+    } else {
+      // Фолбек на всякий
+      drawShadow(reunion.kat.x, reunion.kat.y, reunion.kat.w, reunion.kat.h, 0.70, 0.20, 5);
+      if (ready(katImg)) ctx.drawImage(katImg, reunion.kat.x, reunion.kat.y, reunion.kat.w, reunion.kat.h);
+      drawShadow(elf.x, elf.y, elf.w, elf.h);
+      if (ready(elf.img)) ctx.drawImage(elf.img, elf.x, elf.y, elf.w, elf.h);
+    }
 
     endFade = Math.min(1, endFade + 0.04);
     ctx.fillStyle=`rgba(0,0,0,${endFade})`;

@@ -253,9 +253,9 @@ const drawStart=()=>ctx.drawImage(startImg,0,0,canvas.width,canvas.height);
 
 function drawStory(){
   ctx.drawImage(storyImg[idx],0,0,canvas.width,canvas.height);
-  ctx.fillStyle='rgba(0,0,0,.45)'; ctx.fillRect(canvas.width-310,canvas.height-185,300,40);
+  ctx.fillStyle='rgba(0,0,0,.45)'; ctx.fillRect(canvas.width-310,canvas.height-15,300,40);
   ctx.fillStyle='#fff'; ctx.font='22px monospace'; ctx.textAlign='right';
-  ctx.fillText('Click to continue',canvas.width-30,canvas.height-160);
+  ctx.fillText('Click to continue',canvas.width-15,canvas.height-15);
 
   if(fadeDir){
     fadeScr+=fadeDir*0.05;
@@ -419,9 +419,9 @@ function drawEndSlides(){
     const dx=Math.floor((canvas.width-dw)/2), dy=Math.floor((canvas.height-dh)/2);
     ctx.drawImage(img,dx,dy,dw,dh);
   }
-  ctx.fillStyle='rgba(0,0,0,.45)'; ctx.fillRect(canvas.width-310,canvas.height-185,300,40);
+  ctx.fillStyle='rgba(0,0,0,.45)'; ctx.fillRect(canvas.width-310,canvas.height-15,300,40);
   ctx.fillStyle='#fff'; ctx.font='22px monospace'; ctx.textAlign='right';
-  ctx.fillText('Click to continue',canvas.width-30,canvas.height-160);
+  ctx.fillText('Click to continue',canvas.width-15,canvas.height-15);
 
   if(endFadeDir!==0){
     endFade+=endFadeDir*0.05; endFade=Math.max(0,Math.min(1,endFade));

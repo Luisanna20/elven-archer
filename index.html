@@ -43,6 +43,15 @@ function loadOneOf(candidates){
 }
 
 /* ── images ── */
+
+// Level 2 (skeleton meadow) assets
+const bgBone = I('bg_bone_meadow.png');
+const skelWalk = [I('skel_walk_0.png'), I('skel_walk_1.png')];
+const skelShield = [I('skel_shield_0.png'), I('skel_shield_1.png')];
+const skelArcher = [I('skel_archer_0.png'), I('skel_archer_1.png')];
+const boneShardImg = I('bone_shard.png');
+
+
 const startImg=I('StartPage.png'),  bgImg=I('background.png');
 const elfR=I('elf.png'), elfL=I('elf1.png');
 const bugFr=[I('bug.png'),I('bug1.png')];
@@ -53,6 +62,12 @@ const bossIdle=I('boss001.png'), bossHit=I('boss002.png');
 
 const heartImg=I('heart.png');
 const arrowImg=I('arrow.png'); let arrowReady=false; arrowImg.onload=()=>arrowReady=true;
+
+// fx images
+const heartBroken = loadOneOf(['heart_broken.png','hear_broken.png']);
+const sparkImg = I('spark.png');
+
+
 const poisonImg=I('poison.png');
 const storyImg=[1,2,3,4,5,6].map(n=>I(`StoryPage00${n}.png`));
 
@@ -71,17 +86,45 @@ const musBoss =M('boss-fight.mp3');
 const musVictory=M('Victory.mp3');
 
 function fade(a,to,step=0.02,dt=40){
-  const dir=to>a.volume?1:-1;
-  if(dir===1&&a.paused) a.play().catch(()=>{});
-  const id=setInterval(()=>{
-    a.volume=+(a.volume+dir*step).toFixed(3);
-    if((dir===1&&a.volume>=to)||(dir===-1&&a.volume<=to)){
-      a.volume=to; clearInterval(id); if(to===0)a.pause();
+  try{ if(a._fadeId){ clearInterval(a._fadeId); a._fadeId=null; } }catch(_){}
+  // clamp target
+  if(to<0) to=0; else if(to>1) to=1;
+  const dir = to > a.volume ? 1 : -1;
+  if(dir===1 && a.paused){ try{ a.currentTime = a.currentTime||0; a.play().catch(()=>{}); }catch(_e){} }
+  a._fadeId = setInterval(()=>{
+    let v = a.volume + dir*step;
+    if(v<0) v = 0; else if(v>1) v = 1;
+    a.volume = +v.toFixed(3);
+    if((dir===1 && a.volume >= to) || (dir===-1 && a.volume <= to) || a.volume===0 || a.volume===1){
+      a.volume = to;
+      clearInterval(a._fadeId); a._fadeId=null;
+      if(to===0){ try{ a.pause(); }catch(_e){} }
     }
-  },dt);
+  }, dt);
+}
+
+/* ── on game over: stop gameplay music ── */
+function onGameOver(){
+  try{ fade(musGame,0); }catch(e){}
+  try{ fade(musBoss,0); }catch(e){}
+  try{ fade(musStory,0); }catch(e){}
+  try{ fade(musVictory,0); }catch(e){}
 }
 
 /* ── sfx ── */
+
+// hit (player) grunt + fallback mp3
+const sUghWAV = new Audio('ugh_female.wav'); sUghWAV.volume = .6;
+const sUghMP3 = new Audio('ugh_female.mp3'); sUghMP3.volume = .6;
+function playUgh(){
+  try{ sUghWAV.cloneNode().play().catch(()=>{ sUghMP3.cloneNode().play().catch(()=>{}); }); }
+  catch(e){ try{ sUghMP3.cloneNode().play(); }catch(_e){} }
+}
+// game over sting
+const sGameOver = new Audio('game-over.wav'); sGameOver.volume = .8;
+function playGameOver(){ try{ sGameOver.currentTime = 0; sGameOver.play().catch(()=>{}); }catch(e){} }
+
+
 const sShotB=new Audio('bow_fire.wav'); sShotB.volume=.55;
 const sHitB =new Audio('bow_hit.wav');  sHitB.volume=.9;
 const playShot=()=>sShotB.cloneNode().play().catch(()=>{});
@@ -93,11 +136,109 @@ let audioUnlocked=false, ignoreNextClick=false;
 let idx=0, fadeScr=0, fadeDir=0;
 let keys={}, lives=3, score=0, gameOver=false;
 let lastShot=0, shootCD=350, bugCnt=0;
+// boss spawn meter
+let bossProg=0; // 0..100
+const BOSS_SEC_RATE=0, BOSS_KILL_BONUS=10, BOSS_MAX=100;
 
 /* entities */
+// --- transition reset helper (prevents stuck state on restart) ---
+function resetTransitions(){
+  try{
+    transitioning = false;
+    tr = { active:false, stage:0, title:'', next:'', t0:0, alpha:0, tAlpha:0 };
+  }catch(_){}
+  try{ lvlFade=0; lvlFadeDir=0; }catch(_){}
+}
+
+
+// --- cinematic transitions (deterministic timeline) ---
+let transitioning=false;
+let tr={active:false, stage:0, title:'', next:'', t0:0, alpha:0, tAlpha:0};
+
+function startTransition(title,next){
+  transitioning=true;
+  tr.active=true; tr.stage=0; tr.title=title; tr.next=next; tr.t0=performance.now();
+  tr.alpha=0; tr.tAlpha=0;
+  try{ fade(musStory,0); }catch(_){}
+  try{ fade(musGame,.6); }catch(_){}
+}
+
+// Durations (ms)
+const TR_FADE_OUT=800, TR_TITLE_IN=400, TR_TITLE_HOLD=900, TR_TITLE_OUT=400, TR_FADE_IN=800;
+
+function updateTransition(){
+  if(!tr.active){ transitioning=false; return; }
+  const now = performance.now();
+  const dt = now - tr.t0;
+
+  if(tr.stage===0){
+    // Fade out current scene
+    tr.alpha = Math.min(1, dt/ TR_FADE_OUT);
+    if(dt>=TR_FADE_OUT){ tr.stage=1; tr.t0=now; tr.tAlpha=0; }
+  }
+  else if(tr.stage===1){
+    // Title in -> hold -> out (single timeline)
+    if(dt <= TR_TITLE_IN){
+      tr.tAlpha = dt/ TR_TITLE_IN;
+    }else if(dt <= TR_TITLE_IN + TR_TITLE_HOLD){
+      tr.tAlpha = 1;
+    }else if(dt <= TR_TITLE_IN + TR_TITLE_HOLD + TR_TITLE_OUT){
+      const t = dt - (TR_TITLE_IN + TR_TITLE_HOLD);
+      tr.tAlpha = Math.max(0, 1 - t/ TR_TITLE_OUT);
+    }else{
+      // Switch phase now (on black)
+      if(tr.next==='game'){
+        try{ skels.length=0; archers.length=0; boneShots.length=0; }catch(_){}
+        score=0;
+      }
+      phase = tr.next;
+      tr.stage=2; tr.t0=now; tr.alpha=1; tr.tAlpha=0;
+    }
+  }
+  else if(tr.stage===2){
+    // Fade into next scene
+    tr.alpha = Math.max(0, 1 - dt/ TR_FADE_IN);
+    if(dt>=TR_FADE_IN){ tr.alpha=0; tr.active=false; transitioning=false; }
+  }
+
+  // ultimate watchdog: if stuck >10s, finish
+  if(now - (tr.startGuard|| (tr.startGuard=now)) > 10000){
+    tr.active=false; transitioning=false;
+  }
+}
+
+function drawTransitionOverlay(){
+  if(!tr.active) return;
+  ctx.save();
+  ctx.fillStyle='rgba(0,0,0,'+tr.alpha.toFixed(3)+')';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  if(tr.stage>=1){
+    ctx.globalAlpha = tr.tAlpha;
+    ctx.fillStyle='#fff';
+    ctx.font='40px serif';
+    ctx.textAlign='center';
+    ctx.fillText(tr.title, canvas.width/2, canvas.height/2);
+  }
+  ctx.restore();
+}
+
+
+// Skeleton level state
+let skels=[], archers=[], boneShots=[]; // arrays for level 2
+let skelKills=0, SKEL_GOAL=10;
+
+// FX state
+let heartFx=null; // {x,y,until}
+let sparks=[];    // [{x,y,vx,vy,life}]
+
+// level transition fade
+let lvlFade=0, lvlFadeDir=0; // 0..1
+
+
 const elf={x:336,y:920-48-40,w:48,h:48,img:elfR};
 const arrows=[], bugs=[], spits=[];
 let boss=null, bossHp=25, bossAppearing=true;
+let bossGraceUntil=0; // grace period after boss spawn (ms timestamp)
 
 /* финальные переменные */
 let end=null, reunion=null, endIdx=0, endFade=0, endFadeDir=0;
@@ -117,6 +258,11 @@ addEventListener('keydown',unlockAudio,{once:true});
 document.addEventListener('keydown',e=>{
   keys[e.key]=true;
 
+  // quick restart after GAME OVER
+  if(gameOver && ((phase==='game2')||(phase==='game')||(phase==='boss')) && (e.key==='r'||e.key==='R'||e.key==='Enter')){
+    resetGame(); return;
+  }
+
   if(phase==='menu' && e.key==='Enter'){
     phase='story'; fade(musMenu,0); fade(musStory,.6);
   }
@@ -124,7 +270,7 @@ document.addEventListener('keydown',e=>{
   // тестовый запуск босса
   if(e.key==='b' || e.key==='B') startBoss();
 
-  const canShoot=(phase==='game')||(phase==='boss'&&!bossAppearing);
+  const canShoot=(phase==='game2')||(phase==='game')||(phase==='boss'&&!bossAppearing);
   if(canShoot && e.key===' ' && Date.now()-lastShot>shootCD){
     arrows.push({x:elf.x+elf.w/2-8,y:elf.y,w:16,h:24,dy:-6});
     playShot(); lastShot=Date.now();
@@ -136,15 +282,33 @@ canvas.addEventListener('click',()=>{
   if(ignoreNextClick){ignoreNextClick=false;return;}
   if(!audioUnlocked) return;
 
-  if(phase==='story'){ fadeDir=1; }
+  if(phase==='story'){ if(!transitioning) fadeDir=1; }
   else if(phase==='menu'){ phase='story'; fade(musMenu,0); fade(musStory,.6); }
   else if(phase==='endSlides'){ if(endFadeDir===0){ endFadeDir=1; } }
   else if(phase==='credits'){ resetGame(); }
+  else if(((phase==='game2')||(phase==='game')||(phase==='boss')) && gameOver){ resetGame(); } // ✅ restart on click after GAME OVER
 });
 
 /* ── helpers ── */
+
+function spawnSparks(x,y,count=6){
+  for(let i=0;i<count;i++){
+    sparks.push({x:x+(Math.random()*10-5), y:y+(Math.random()*10-5),
+                 vx:(Math.random()-0.5)*2, vy:-(Math.random()*1.5),
+                 life:260});
+  }
+}
+
+
 const hit=(a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
-const lose=()=>{if(--lives<=0) gameOver=true;};
+const lose=()=>{
+  const now = performance.now();
+  lives--; if(lives<0) lives=0;
+  const lostIndex = lives; // zero-based
+  heartFx = { x:20+lostIndex*50, y:20, until: now+240 };
+  if(lives<=0){ gameOver=true; onGameOver(); playGameOver(); }
+  else { playUgh(); }
+};
 
 function drawShadow(x,y,w,h,kx=0.70,ky=0.22,yOffset=6,alpha=0.65,angle=0){
   if(!(shadowImg.complete && shadowImg.naturalWidth)) return;
@@ -157,9 +321,130 @@ function drawShadow(x,y,w,h,kx=0.70,ky=0.22,yOffset=6,alpha=0.65,angle=0){
 
 /* ── update ── */
 function update(){
-  if((phase!=='game'&&phase!=='boss')||gameOver) return;
+  const now = performance.now();
+  // --- Level 2: Skeletons ---
+  if(phase==='game2' && !gameOver && !transitioning){
+    const controls=true;
+    // player movement (same as game)
+    if(keys.ArrowLeft  && elf.x>130){ elf.x -= 5; elf.img=elfL; }
+    if(keys.ArrowRight && elf.x+elf.w<canvas.width-130){ elf.x += 5; elf.img=elfR; }
 
-  const controls=(phase==='game')||(phase==='boss'&&!bossAppearing);
+    // arrows
+    arrows.forEach((a,i)=>{ a.y+=a.dy; if(a.y<-30) arrows.splice(i,1); });
+
+    // skels move
+    for(let i=skels.length-1;i>=0;i--){
+      const s=skels[i];
+      s.y += s.dy;
+      s.x += Math.sin(now*0.003 + s.seed)*0.4;
+
+      // shield toggle
+      if(s.kind==='shield'){
+        s.shieldT += 16;
+        const cycle = 1200; // ms
+        s.shieldUp = (s.shieldT % cycle) < 600; // half of time up
+      }
+
+      // leave screen -> life lost
+      if(s.y>canvas.height){ skels.splice(i,1); continue; }
+
+      // collide with elf
+      if(hit(s,elf)){ skels.splice(i,1); lose(); continue; }
+    }
+
+    // archers patrol
+    for(let i=archers.length-1;i>=0;i--){
+      const a=archers[i];
+      a.x += a.vx; a.y += a.vy;
+      if(a.x<a.minX){a.x=a.minX; a.vx=Math.abs(a.vx);}
+      if(a.x>a.maxX){a.x=a.maxX; a.vx=-Math.abs(a.vx);}
+      if(a.y<a.minY){a.y=a.minY; a.vy=Math.abs(a.vy);}
+      if(a.y>a.maxY){a.y=a.maxY; a.vy=-Math.abs(a.vy);}
+
+      // shoot toward elf
+      if(now - a.lastShot > a.shootCD){
+        a.lastShot = now; a.shootCD = 2200 + Math.random()*1200;
+        // vector to elf center
+        const ex = elf.x+elf.w/2, ey = elf.y+elf.h/2;
+        let dx = ex - (a.x + a.w/2), dy = ey - (a.y + a.h/2);
+        const len = Math.max(1, Math.hypot(dx,dy));
+        const spd = 3; dx = dx/len*spd; dy = dy/len*spd;
+        boneShots.push({x:a.x+a.w/2-7, y:a.y+a.h/2-7, w:14, h:14, dx, dy});
+      }
+
+      // dead?
+      if(a.hp<=0){ archers.splice(i,1); skelKills++; spawnSparks(a.x+a.w/2,a.y+a.h/2,8); }
+    }
+
+    // bone shots
+    for(let i=boneShots.length-1;i>=0;i--){
+      const p = boneShots[i];
+      p.x += p.dx; p.y += p.dy;
+      if(p.x<-20 || p.x>canvas.width+20 || p.y>canvas.height+20 || p.y<-20){ boneShots.splice(i,1); continue; }
+      if(hit(p,elf)){ boneShots.splice(i,1); lose(); }
+    }
+
+    // arrows vs skels
+    for(let ai=arrows.length-1; ai>=0; ai--){
+      for(let si=skels.length-1; si>=0; si--){
+        const s=skels[si], a=arrows[ai];
+        if(hit(a,s)){
+          // shield block?
+          if(s.kind==='shield' && s.shieldUp){
+            // block this arrow (no hp loss)
+            arrows.splice(ai,1); spawnSparks(a.x,a.y,4);
+          }else{
+            s.hp--; arrows.splice(ai,1); spawnSparks(s.x+s.w/2,s.y+s.h/2,7);
+            if(s.hp<=0){ skels.splice(si,1); skelKills++; }
+          }
+          break;
+        }
+      }
+    }
+
+    // arrows vs archers
+    for(let ai=arrows.length-1; ai>=0; ai--){
+      for(let ii=archers.length-1; ii>=0; ii--){
+        const r=archers[ii], a=arrows[ai];
+        if(hit(a,r)){
+          r.hp--; arrows.splice(ai,1); spawnSparks(r.x+r.w/2,r.y+r.h/2,7);
+          if(r.hp<=0){ archers.splice(ii,1); skelKills++; }
+          break;
+        }
+      }
+    }
+
+    
+    // update sparks (so flashes don't linger)
+    for(let i=sparks.length-1;i>=0;i--){
+      const p=sparks[i];
+      p.x+=p.vx; p.y+=p.vy; p.vy+=0.05; p.life-=16;
+      if(p.life<=0) sparks.splice(i,1);
+    }
+// level completion
+    if(skelKills>=SKEL_GOAL && !transitioning){ startTransition('Bug Hive','game'); }
+
+    if(skelKills>=SKEL_GOAL && lvlFadeDir===0){ lvlFadeDir=1; }
+    if(lvlFadeDir!==0){
+      lvlFade += lvlFadeDir*0.06;
+      if(lvlFade>=1){
+        // transition to bug level
+        lvlFade=1; lvlFadeDir=-1;
+        // clear L2
+        skels.length=0; archers.length=0; boneShots.length=0;
+        arrows.length=0; // optional
+        score=0; // reset score for next level
+        phase='game'; // go to bug level (existing)
+        // fade stays at 1, drawGame will continue; we'll fade back
+      }else if(lvlFade<=0){
+        lvlFade=0; lvlFadeDir=0;
+      }
+    }
+  }
+
+  if((phase!=='game'&&phase!=='boss')||gameOver||transitioning) return;
+
+  const controls=(phase==='game')||(phase==='boss');
   if(controls){
     if(keys.ArrowLeft && elf.x>130){ elf.x-=5; elf.img=elfL; }
     if(keys.ArrowRight&& elf.x+elf.w<canvas.width-130){ elf.x+=5; elf.img=elfR; }
@@ -170,20 +455,27 @@ function update(){
   bugs.forEach((b,i)=>{
     b.y+=b.dy;
     if(b.y>canvas.height) bugs.splice(i,1);
-    if(hit(b,elf)&&controls){bugs.splice(i,1);lose();}
+    if(hit(b,elf)&&controls && now>bossGraceUntil){bugs.splice(i,1);lose();}
   });
 
   spits.forEach((s,i)=>{
     s.y+=s.dy;
     if(s.y>canvas.height) spits.splice(i,1);
-    if(hit(s,elf)&&controls){spits.splice(i,1);lose();}
+    if(hit(s,elf)&&controls && now>bossGraceUntil){spits.splice(i,1);lose();}
   });
+
+  // update sparks (bug level)
+  for(let i=sparks.length-1;i>=0;i--){
+    const p=sparks[i]; p.x+=p.vx; p.y+=p.vy; p.vy+=0.05; p.life-=16;
+    if(p.life<=0) sparks.splice(i,1);
+  }
 
   // arrows vs bugs
   arrows.forEach((a,ai)=>bugs.forEach((b,bi)=>{
     if(hit(a,b)){
-      playHit(); arrows.splice(ai,1); bugs.splice(bi,1); score++;
-      if(score>=30 && phase==='game') startBoss();
+      playHit(); spawnSparks(b.x+b.w/2,b.y+b.h/2,7); arrows.splice(ai,1); bugs.splice(bi,1); score++;
+      bossProg = Math.min(BOSS_MAX, bossProg + BOSS_KILL_BONUS);
+      if(phase==='game' && bossProg>=BOSS_MAX) startBoss();
     }
   }));
 
@@ -210,7 +502,7 @@ function update(){
     // arrows vs boss
     arrows.forEach((a,ai)=>{
       if(hit(a,boss)){
-        playHit(); arrows.splice(ai,1);
+        playHit(); spawnSparks(boss.x+boss.w/2, boss.y+boss.h/2, 10); arrows.splice(ai,1);
         boss.hitFlash=20; bossHp--;
         if(bossHp<=0){ startFinalSequence(); }
       }
@@ -222,11 +514,56 @@ function update(){
 }
 
 /* ── spawn bugs ── */
+
+
+/* ── spawn skeletons (game2) ── */
+let skelFrame=0; setInterval(()=>skelFrame^=1,180);
+
 setInterval(()=>{
-  if(phase!=='game'||gameOver) return;
+  if(phase!=='game2' || gameOver || transitioning) return;
+
+  // limit totals so поле не захламляется
+  const walkers = skels.filter(s=>s.kind==='walker').length;
+  const shields = skels.filter(s=>s.kind==='shield').length;
+  const archCnt = archers.length;
+
+  // spawn walkers / shields with small randomness
+  if(walkers+shields < 5){
+    const kind = Math.random()<0.6 ? 'walker' : 'shield';
+    const x = Math.floor(80 + Math.random()*(canvas.width-160));
+    const dy = kind==='walker' ? (0.35+Math.random()*0.25) : (0.30+Math.random()*0.20);
+    skels.push({
+      kind, x, y:-64, w:48, h:64, dy, hp:(kind==='shield'?3:2),
+      anim:0, seed: Math.random()*Math.PI*2,
+      shieldUp:false, shieldT:0
+    });
+  }
+
+  // spawn archers up to 2
+  if(archCnt < 1){
+    // only spawn if fewer than 2 total archers exist
+    const ax = Math.floor(100 + Math.random()*(canvas.width-200));
+    const ay = Math.floor(40 + Math.random()*100);
+    archers.push({
+      x:ax, y:ay, w:48, h:64, hp:2,
+      vx: (Math.random()<0.5?1:-1)*0.35, vy: (Math.random()<0.5?1:-1)*0.25,
+      minX:40, maxX:canvas.width-88, minY:20, maxY:200,
+      lastShot:0, shootCD: 2200 + Math.random()*1200,
+      frame:0
+    });
+  }
+}, 2000);
+
+
+setInterval(()=>{
+  if(phase!=='game'||gameOver||transitioning) return;
   bugCnt++; const speed=1.5+Math.random()*2.5;
 
-  const LANE_LEFT=130, LANE_RIGHT=canvas.width-130;
+  
+  // boss meter fills over time too
+  bossProg = Math.min(BOSS_MAX, bossProg + BOSS_SEC_RATE);
+  if(bossProg>=BOSS_MAX){ startBoss(); }
+const LANE_LEFT=130, LANE_RIGHT=canvas.width-130;
   const BW=45, BH=45;
   const b={x:Math.floor(LANE_LEFT+Math.random()*(LANE_RIGHT-LANE_LEFT-BW)),
            y:0,w:BW,h:BH,dy:speed};
@@ -237,7 +574,8 @@ setInterval(()=>{
 /* ── boss start ── */
 function startBoss(){
   if(phase==='boss') return;           // идемпотентность
-  phase='boss'; fade(musGame,0); fade(musBoss,.7);
+  bossGraceUntil = performance.now()+800; // ~0.8s safety window
+  phase='boss'; fade(musGame,0); fade(musBoss,.65);
   boss={x:canvas.width/2-90,y:-180,w:180,h:180,hitFlash:0,name:'Scarlet Widow'};
   bossHp=25; bossAppearing=true;
 }
@@ -269,28 +607,159 @@ function drawContinueHint() {
 
 
 function drawStory(){
-  ctx.drawImage(storyImg[idx],0,0,canvas.width,canvas.height);
- drawContinueHint();
+  const cur = (idx>=0 && idx<storyImg.length) ? storyImg[idx] : null;
+  if(cur && cur.complete && cur.naturalWidth>0){
+    ctx.drawImage(cur,0,0,canvas.width,canvas.height);
+  }
+  if(!transitioning) drawContinueHint();
 
   if(fadeDir){
     fadeScr+=fadeDir*0.05;
     ctx.fillStyle=`rgba(0,0,0,${fadeScr})`; ctx.fillRect(0,0,canvas.width,canvas.height);
     if(fadeScr>=1){fadeDir=-1;fadeScr=1;idx++;
-      if(idx>=storyImg.length){phase='game';fade(musStory,0);fade(musGame,.6);}
+      if(idx>=storyImg.length && !transitioning){ startTransition('Bone Gorge','game2'); }
     }else if(fadeScr<=0){fadeDir=0;fadeScr=0;}
   }
 }
 
+function drawGame2(){
+  // background
+  if(ready(bgBone)) ctx.drawImage(bgBone,0,0,canvas.width,canvas.height);
+
+  // elf
+  drawShadow(elf.x, elf.y, elf.w, elf.h, 0.90, 0.22, 10);
+  if(ready(elf.img)) ctx.drawImage(elf.img,elf.x,elf.y,elf.w,elf.h);
+
+  // arrows with glow
+  arrows.forEach(a=>{
+    if(arrowReady){
+      ctx.save();
+      ctx.globalCompositeOperation='lighter';
+      ctx.shadowColor='rgba(255,200,0,0.85)';
+      ctx.shadowBlur=18;
+      ctx.drawImage(arrowImg,a.x,a.y,a.w,a.h);
+      ctx.restore();
+      ctx.drawImage(arrowImg,a.x,a.y,a.w,a.h);
+    }else{
+      ctx.fillStyle='yellow'; ctx.fillRect(a.x,a.y,a.w,a.h);
+    }
+  });
+
+  // skels
+  skels.forEach(s=>{
+    drawShadow(s.x, s.y, s.w, s.h, 0.85, 0.22, 9);
+    const fr = (s.kind==='walker'? skelWalk[skelFrame] : skelShield[ s.shieldUp ? 1 : skelFrame ]);
+    if(ready(fr)) ctx.drawImage(fr, s.x, s.y, s.w, s.h);
+  });
+
+  // archers
+  archers.forEach(r=>{
+    drawShadow(r.x, r.y, r.w, r.h, 0.85, 0.22, 9);
+    const fr = skelArcher[skelFrame];
+    if(ready(fr)) ctx.drawImage(fr, r.x, r.y, r.w, r.h);
+  });
+
+  // bone shards (glow + core)
+  boneShots.forEach(p=>{
+    if(ready(boneShardImg)){
+      ctx.save(); ctx.globalCompositeOperation='lighter';
+      ctx.shadowColor='rgba(255,255,220,0.85)'; ctx.shadowBlur=8;
+      ctx.drawImage(boneShardImg, p.x, p.y, 14, 14);
+      ctx.restore();
+      ctx.drawImage(boneShardImg, p.x, p.y, 14, 14);
+    }else{ ctx.fillStyle='#ddd'; ctx.fillRect(p.x,p.y,14,14); }
+  });
+
+  // HUD (hearts + kills)
+  for(let i=0;i<lives;i++) ctx.drawImage(heartImg,20+i*50,20,40,40);
+  ctx.fillStyle='#fff'; ctx.font='24px monospace'; ctx.textAlign='left';
+  ctx.fillText('Kills: '+skelKills+' / '+SKEL_GOAL, 20, 84);
+
+  // heart broken FX
+  if(heartFx){
+    const now = performance.now();
+    if(now < heartFx.until){
+      ctx.save();
+      ctx.globalAlpha = 0.7 + 0.3*Math.sin(now*0.05);
+      if(heartBroken.ok && ready(heartBroken.img)){
+        ctx.drawImage(heartBroken.img, heartFx.x, heartFx.y, 40, 40);
+      }
+      ctx.restore();
+    } else { heartFx=null; }
+  }
+
+  // sparks
+  if(sparkImg && sparkImg.complete){
+    ctx.save();
+    for(const p of sparks){
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life/260));
+      ctx.drawImage(sparkImg, p.x, p.y, 16, 16);
+    }
+    ctx.restore();
+  }
+
+  // level fade overlay
+  if(lvlFade>0){
+    ctx.fillStyle = 'rgba(0,0,0,'+lvlFade+')';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+  }
+
+    // heart broken FX
+  if(heartFx){
+    const now = performance.now();
+    if(now < heartFx.until){
+      ctx.save();
+      ctx.globalAlpha = 0.7 + 0.3*Math.sin(now*0.05);
+      if(heartBroken.ok && ready(heartBroken.img)){
+        ctx.drawImage(heartBroken.img, heartFx.x, heartFx.y, 40, 40);
+      }
+      ctx.restore();
+    } else { heartFx=null; }
+  }
+
+  // sparks
+  if(sparkImg && sparkImg.complete){
+    ctx.save();
+    for(const p of sparks){
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life/260));
+      ctx.drawImage(sparkImg, p.x, p.y, 16, 16);
+    }
+    ctx.restore();
+  }
+
+if(gameOver){
+    ctx.fillStyle='red'; ctx.font='48px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('GAME OVER',canvas.width/2,canvas.height/2);
+    ctx.font='22px monospace'; ctx.fillStyle='#fff';
+    ctx.fillText('Click or press R to restart',canvas.width/2,canvas.height/2+40);
+  }
+}
+
 function drawGame(){
+
+
+// --- Level 2: Skeleton Meadow ---
+
+
+
   ctx.drawImage(bgImg,0,0,canvas.width,canvas.height);
 
   // эльфийка
   drawShadow(elf.x, elf.y, elf.w, elf.h);
   ctx.drawImage(elf.img,elf.x,elf.y,elf.w,elf.h);
 
-  // стрелы
-  arrows.forEach(a=>arrowReady? ctx.drawImage(arrowImg,a.x,a.y,a.w,a.h)
-                              : (ctx.fillStyle='yellow',ctx.fillRect(a.x,a.y,a.w,a.h)));
+  // стрелы (glow + core)
+  arrows.forEach(a=>{
+    if(arrowReady){
+      ctx.save(); ctx.globalCompositeOperation='lighter';
+      ctx.shadowColor='rgba(255,200,0,0.85)'; ctx.shadowBlur=18;
+      ctx.drawImage(arrowImg,a.x,a.y,a.w,a.h);
+      ctx.restore();
+      ctx.drawImage(arrowImg,a.x,a.y,a.w,a.h);
+    }else{
+      ctx.fillStyle='yellow'; ctx.fillRect(a.x,a.y,a.w,a.h);
+    }
+  });
 
   // жуки
   bugs.forEach(b=>{
@@ -322,9 +791,42 @@ function drawGame(){
   ctx.fillStyle='#fff'; ctx.font='26px monospace'; ctx.textAlign='right';
   ctx.fillText('Score: '+score,canvas.width-20,46);
 
-  if(gameOver){
+  
+    // Boss meter bar (top-left, above hearts)
+  const BW = 210, BH = 10, BX = 20, BY = 12;
+  ctx.fillStyle='rgba(255,255,255,0.15)'; ctx.fillRect(BX,BY,BW,BH);
+  ctx.fillStyle='#86e57f'; ctx.fillRect(BX,BY,Math.floor(BW*(bossProg/BOSS_MAX)),BH);
+  ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.strokeRect(BX,BY,BW,BH);
+  ctx.font='14px monospace'; ctx.textAlign='left'; ctx.fillStyle='#ddd';
+  ctx.fillText('Boss '+Math.floor(bossProg)+'%', BX, BY-2);
+  // heart broken FX
+  if(heartFx){
+    const now = performance.now();
+    if(now < heartFx.until){
+      ctx.save();
+      ctx.globalAlpha = 0.7 + 0.3*Math.sin(now*0.05);
+      if(heartBroken.ok && ready(heartBroken.img)){
+        ctx.drawImage(heartBroken.img, heartFx.x, heartFx.y, 40, 40);
+      }
+      ctx.restore();
+    } else { heartFx=null; }
+  }
+
+  // sparks
+  if(sparkImg && sparkImg.complete){
+    ctx.save();
+    for(const p of sparks){
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life/260));
+      ctx.drawImage(sparkImg, p.x, p.y, 16, 16);
+    }
+    ctx.restore();
+  }
+
+if(gameOver){
     ctx.fillStyle='red'; ctx.font='48px sans-serif'; ctx.textAlign='center';
     ctx.fillText('GAME OVER',canvas.width/2,canvas.height/2);
+    ctx.font='22px monospace'; ctx.fillStyle='#fff';
+    ctx.fillText('Click or press R to restart',canvas.width/2,canvas.height/2+40);
   }
 }
 
@@ -346,7 +848,15 @@ function drawPostBoss(){
   ctx.fillStyle='#fff'; ctx.font='26px monospace'; ctx.textAlign='right';
   ctx.fillText('Score: '+score,canvas.width-20,46);
 
-  // страховки: если что — сразу к встрече
+  
+    // Boss meter bar (top-left, above hearts)
+  const BW = 210, BH = 10, BX = 20, BY = 12;
+  ctx.fillStyle='rgba(255,255,255,0.15)'; ctx.fillRect(BX,BY,BW,BH);
+  ctx.fillStyle='#86e57f'; ctx.fillRect(BX,BY,Math.floor(BW*(bossProg/BOSS_MAX)),BH);
+  ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.strokeRect(BX,BY,BW,BH);
+  ctx.font='14px monospace'; ctx.textAlign='left'; ctx.fillStyle='#ddd';
+  ctx.fillText('Boss '+Math.floor(bossProg)+'%', BX, BY-2);
+// страховки: если что — сразу к встрече
   if(!end || !boss){ end=null; if(!reunion) startReunion(); return; }
 
   const now=performance.now();
@@ -370,7 +880,7 @@ function drawPostBoss(){
 /* ── reunion: встреча и объятия ── */
 function startReunion(){
   phase='reunion';
-  arrows.length=0; bugs.length=0; spits.length=0;
+  arrows.length=0; bugs.length=0; spits.length=0; sparks.length=0; heartFx=null; skels.length=0; archers.length=0; boneShots.length=0; skelKills=0; lvlFade=0; lvlFadeDir=0;
   const meetY=Math.floor(canvas.height*0.58);
   reunion={mode:'runToMeet', speed:3.2, meetY, kat:{x:Math.floor(elf.x+elf.w/2-24), y:-64, w:48, h:48}, hugT:0};
 }
@@ -414,7 +924,7 @@ function drawReunion(){
     if(hug.ok && ready(hug.img)){ drawShadow(hx,hy,128,128,0.85,0.18,8); ctx.drawImage(hug.img,hx,hy,128,128); }
     else{
       drawShadow(reunion.kat.x,reunion.kat.y,reunion.kat.w,reunion.kat.h,0.70,0.20,5);
-      if(kat.ok && ready(kat.img)) ctx.drawImage(kat.img,reunion.kat.x,reunion.kat.y,reunion.kат.w,reunion.kат.h);
+      if(kat.ok && ready(kat.img)) ctx.drawImage(kat.img,reunion.kat.x,reunion.kat.y,reunion.kat.w,reunion.kat.h);
       drawShadow(elf.x,elf.y,elf.w,elf.h);
       if(ready(elf.img)) ctx.drawImage(elf.img,elf.x,elf.y,elf.w,elf.h);
     }
@@ -463,21 +973,27 @@ function drawCredits(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
   if(phase==='menu') drawStart();
   else if(phase==='story') drawStory();
+  else if(phase==='game2'){ update(); drawGame2(); }
   else if(phase==='game'||phase==='boss'){ update(); drawGame(); }
   else if(phase==='postBoss'){ drawPostBoss(); }
   else if(phase==='reunion'){ drawReunion(); }
   else if(phase==='endSlides'){ drawEndSlides(); }
   else if(phase==='credits'){ drawCredits(); }
+  updateTransition();
+  drawTransitionOverlay();
   requestAnimationFrame(loop);
 })();
 
 /* ── reset ── */
 function resetGame(){
-  fade(musVictory,0); fade(musMenu,.6);
+  resetTransitions();
+  gameOver=false; bossGraceUntil=0;
+
+  fade(musGame,0); fade(musBoss,0); fade(musStory,0); fade(musVictory,0); fade(musMenu,.6);
   phase='menu'; audioUnlocked=true; ignoreNextClick=false;
-  idx=0; fadeScr=0; fadeDir=0; keys={}; lives=3; score=0; gameOver=false; lastShot=0; bugCnt=0;
+  idx=0; fadeScr=0; fadeDir=0; keys={}; lives=3; score=0; gameOver=false; lastShot=0; bugCnt=0; bossProg=0;
   elf.x=336; elf.y=920-48-40; elf.img=elfR;
-  arrows.length=0; bugs.length=0; spits.length=0;
+  arrows.length=0; bugs.length=0; spits.length=0; sparks.length=0; heartFx=null; skels.length=0; archers.length=0; boneShots.length=0; skelKills=0; lvlFade=0; lvlFadeDir=0;
   boss=null; bossHp=25; bossAppearing=true;
   end=null; reunion=null; endIdx=0; endFade=0; endFadeDir=0;
 }

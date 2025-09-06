@@ -160,7 +160,6 @@ function resetTransitions(){
     transitioning = false;
     tr = { active:false, stage:0, title:'', next:'', t0:0, alpha:0, tAlpha:0 };
   }catch(_){}
-  try{ lvlFade=0; lvlFadeDir=0; }catch(_){}
 }
 
 
@@ -168,13 +167,13 @@ function resetTransitions(){
 let transitioning=false;
 let tr={active:false, stage:0, title:'', next:'', t0:0, alpha:0, tAlpha:0};
 
-function startTransition(title,next){
-  transitioning=true;
-  tr.active=true; tr.stage=0; tr.title=title; tr.next=next; tr.t0=performance.now();
-  tr.alpha=0; tr.tAlpha=0;
-  try{ fade(musStory,0); }catch(_){}
-  try{ fade(musGame,.6); }catch(_){}
-}
+  function startTransition(title,next){
+    transitioning=true;
+    tr.active=true; tr.stage=0; tr.title=title; tr.next=next; tr.t0=performance.now();
+    tr.alpha=0; tr.tAlpha=0;
+    try{ fade(musStory,0); }catch(_){}
+    try{ fade(musGame, (next==='game'||next==='game2') ? .6 : 0); }catch(_){}
+  }
 
 // Durations (ms)
 const TR_FADE_OUT=800, TR_TITLE_IN=400, TR_TITLE_HOLD=900, TR_TITLE_OUT=400, TR_FADE_IN=800;
@@ -198,18 +197,22 @@ function updateTransition(){
     }else if(dt <= TR_TITLE_IN + TR_TITLE_HOLD + TR_TITLE_OUT){
       const t = dt - (TR_TITLE_IN + TR_TITLE_HOLD);
       tr.tAlpha = Math.max(0, 1 - t/ TR_TITLE_OUT);
-    }else{
-      // Switch phase now (on black)
-      if(tr.next==='game'){
-        try{ skels.length=0; archers.length=0; boneShots.length=0; }catch(_){}
-        score=0;
-      
-        scrollBugY=0; bugDist=0;
+      }else{
+        // Switch phase now (on black)
+        if(tr.next==='game'){
+          try{ skels.length=0; archers.length=0; boneShots.length=0; }catch(_){}
+          score=0;
+          scrollBugY=0; bugDist=0;
+        }else if(tr.next==='boss'){
+          bossGraceUntil = performance.now()+800;
+          fade(musGame,0); fade(musBoss,.65);
+          boss={x:canvas.width/2-90,y:-180,w:180,h:180,hitFlash:0,name:'Scarlet Widow'};
+          bossHp=25; bossAppearing=true;
+        }
+        phase = tr.next;
+        tr.stage=2; tr.t0=now; tr.alpha=1; tr.tAlpha=0;
       }
-      phase = tr.next;
-      tr.stage=2; tr.t0=now; tr.alpha=1; tr.tAlpha=0;
     }
-  }
   else if(tr.stage===2){
     // Fade into next scene
     tr.alpha = Math.max(0, 1 - dt/ TR_FADE_IN);
@@ -245,9 +248,6 @@ let skelKills=0, SKEL_GOAL=10;
 // FX state
 let heartFx=null; // {x,y,until}
 let sparks=[];    // [{x,y,vx,vy,life}]
-
-// level transition fade
-let lvlFade=0, lvlFadeDir=0; // 0..1
 
 
 const elf={x:336,y:920-48-40,w:48,h:48,img:elfR};
@@ -483,25 +483,8 @@ function update(){
       p.x+=p.vx; p.y+=p.vy; p.vy+=0.05; p.life-=16;
       if(p.life<=0) sparks.splice(i,1);
     }
-// level completion
-    if(skelKills>=SKEL_GOAL && !transitioning){ startTransition('Bug Hive','game'); }
-
-    if(skelKills>=SKEL_GOAL && lvlFadeDir===0){ lvlFadeDir=1; }
-    if(lvlFadeDir!==0){
-      lvlFade += lvlFadeDir*0.06;
-      if(lvlFade>=1){
-        // transition to bug level
-        lvlFade=1; lvlFadeDir=-1;
-        // clear L2
-        skels.length=0; archers.length=0; boneShots.length=0;
-        arrows.length=0; // optional
-        score=0; // reset score for next level
-        phase='game'; // go to bug level (existing)
-        // fade stays at 1, drawGame will continue; we'll fade back
-      }else if(lvlFade<=0){
-        lvlFade=0; lvlFadeDir=0;
-      }
-    }
+  // level completion
+  if(skelKills>=SKEL_GOAL && !transitioning){ startTransition('Bug Hive','game'); }
   }
 
   if((phase!=='game'&&phase!=='boss')||gameOver||transitioning) return;
@@ -644,11 +627,8 @@ const LANE_LEFT=130, LANE_RIGHT=canvas.width-130;
 
 /* ── boss start ── */
 function startBoss(){
-  if(phase==='boss') return;           // идемпотентность
-  bossGraceUntil = performance.now()+800; // ~0.8s safety window
-  phase='boss'; fade(musGame,0); fade(musBoss,.65);
-  boss={x:canvas.width/2-90,y:-180,w:180,h:180,hitFlash:0,name:'Scarlet Widow'};
-  bossHp=25; bossAppearing=true;
+  if(phase==='boss' || transitioning) return; // идемпотентность
+  startTransition('Scarlet Widow','boss');
 }
 
 /* ── финал: от смерти босса к кат-сцене ── */
@@ -939,7 +919,7 @@ function drawPostBoss(){
 /* ── reunion: встреча и объятия ── */
 function startReunion(){
   phase='reunion';
-  arrows.length=0; bugs.length=0; spits.length=0; sparks.length=0; heartFx=null; skels.length=0; archers.length=0; boneShots.length=0; skelKills=0; lvlFade=0; lvlFadeDir=0;
+  arrows.length=0; bugs.length=0; spits.length=0; sparks.length=0; heartFx=null; skels.length=0; archers.length=0; boneShots.length=0; skelKills=0;
   const meetY=Math.floor(canvas.height*0.58);
   reunion={mode:'runToMeet', speed:3.2, meetY, kat:{x:Math.floor(elf.x+elf.w/2-24), y:-64, w:48, h:48}, hugT:0};
 }
@@ -1053,7 +1033,7 @@ function resetGame(){
   phase='menu'; audioUnlocked=true; ignoreNextClick=false;
   idx=0; fadeScr=0; fadeDir=0; keys={}; lives=3; score=0; gameOver=false; lastShot=0; bugCnt=0; bossProg=0;
   elf.x=336; elf.y=920-48-40; elf.img=elfR;
-  arrows.length=0; bugs.length=0; spits.length=0; sparks.length=0; heartFx=null; skels.length=0; archers.length=0; boneShots.length=0; skelKills=0; lvlFade=0; lvlFadeDir=0;
+  arrows.length=0; bugs.length=0; spits.length=0; sparks.length=0; heartFx=null; skels.length=0; archers.length=0; boneShots.length=0; skelKills=0;
   boss=null; bossHp=25; bossAppearing=true;
   bugDist=0; totalKills=0;
   end=null; reunion=null; endIdx=0; endFade=0; endFadeDir=0;
@@ -1071,4 +1051,3 @@ setTimeout(()=>{
 </script>
 </body>
 </html>
-  ctx.fillText('Path: '+Math.min(100, Math.floor(boneDist*100/boneDistGoal))+'%', 20, 110);

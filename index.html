@@ -54,6 +54,11 @@ const boneShardImg = I('bone_shard.png');
 
 const startImg=I('StartPage.png'),  bgImg=I('background.png');
 const elfR=I('elf.png'), elfL=I('elf1.png');
+const elfR_taut=I('elf.png');
+const elfR_release=I('elf2.png');
+const elfL_taut=I('elf1.png');
+const elfL_release=I('elf3.png');
+
 const bugFr=[I('bug.png'),I('bug1.png')];
 const shadowImg=I('shadow.png');
 let bugFrame=0; setInterval(()=>bugFrame^=1,150);
@@ -135,12 +140,20 @@ let phase='menu'; // menu→story→game→boss→postBoss→reunion→endSlides
 let audioUnlocked=false, ignoreNextClick=false;
 let idx=0, fadeScr=0, fadeDir=0;
 let keys={}, lives=3, score=0, gameOver=false;
+let totalKills=0; // глобальный счётчик убийств (все карты подряд)
 let lastShot=0, shootCD=350, bugCnt=0;
 // boss spawn meter
 let bossProg=0; // 0..100
-const BOSS_SEC_RATE=0, BOSS_KILL_BONUS=10, BOSS_MAX=100;
+const BOSS_SEC_RATE=1, BOSS_KILL_BONUS=3, BOSS_MAX=100;
 
 /* entities */
+// --- vertical scrolling state ---
+let scrollBoneY=0, scrollBugY=0;
+const SCROLL_BONE = 0.8;   // px per frame (skeletons)
+const SCROLL_BUG  = 0.6;   // px per frame (bugs)
+const BONE_LOOPS_GOAL=5, BUG_LOOPS_GOAL=5;
+let boneDist=0, bugDist=0; // travel to complete level (px); keep kills trigger too
+
 // --- transition reset helper (prevents stuck state on restart) ---
 function resetTransitions(){
   try{
@@ -190,6 +203,8 @@ function updateTransition(){
       if(tr.next==='game'){
         try{ skels.length=0; archers.length=0; boneShots.length=0; }catch(_){}
         score=0;
+      
+        scrollBugY=0; bugDist=0;
       }
       phase = tr.next;
       tr.stage=2; tr.t0=now; tr.alpha=1; tr.tAlpha=0;
@@ -236,6 +251,8 @@ let lvlFade=0, lvlFadeDir=0; // 0..1
 
 
 const elf={x:336,y:920-48-40,w:48,h:48,img:elfR};
+elf.face='R'; elf.shootFX={active:false, until:0};
+
 const arrows=[], bugs=[], spits=[];
 let boss=null, bossHp=25, bossAppearing=true;
 let bossGraceUntil=0; // grace period after boss spawn (ms timestamp)
@@ -273,6 +290,7 @@ document.addEventListener('keydown',e=>{
   const canShoot=(phase==='game2')||(phase==='game')||(phase==='boss'&&!bossAppearing);
   if(canShoot && e.key===' ' && Date.now()-lastShot>shootCD){
     arrows.push({x:elf.x+elf.w/2-8,y:elf.y,w:16,h:24,dy:-6});
+    elf.shootFX.active=true; elf.shootFX.until=performance.now()+120;
     playShot(); lastShot=Date.now();
   }
 });
@@ -318,16 +336,60 @@ function drawShadow(x,y,w,h,kx=0.70,ky=0.22,yOffset=6,alpha=0.65,angle=0){
   ctx.save(); ctx.globalAlpha=alpha; ctx.translate(cx,cy); ctx.rotate(angle);
   ctx.drawImage(shadowImg,-sw/2,-sh/2,sw,sh); ctx.restore();
 }
+// --- stronger elf shadow + optional glow (skeletons only) ---
+function drawElfShadow(){
+  // Skeleton level: closer to feet, slightly larger + heavier alpha
+  if(phase==='game2'){
+    drawShadow(elf.x, elf.y, elf.w, elf.h, 0.95, 0.22, 4, 0.78, 0);
+  }else{
+    // Bug meadow: move down and roughly double size vs default
+    drawShadow(elf.x, elf.y, elf.w, elf.h, 1.25, 0.26, 4, 0.72, 0);
+  }
+}
+function drawElfGlow(){
+  if(phase!=='game2') return; // glow only on skeleton level
+  const cx = Math.floor(elf.x + elf.w/2), cy = Math.floor(elf.y + elf.h*0.55);
+  const rOuter = Math.max(elf.w, elf.h)*0.75;
+  const rInner = Math.max(elf.w, elf.h)*0.25;
+  const g = ctx.createRadialGradient(cx, cy, rInner, cx, cy, rOuter);
+  g.addColorStop(0, 'rgba(170,210,255,0.35)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(cx, cy, rOuter, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+// draw background with vertical scrolling (seamless wrap using two draws)
+function drawScrollingBG(img, offsetY){
+  const h = canvas.height;
+  // wrap offset to [0,h) и двигаем фон ВНИЗ по мере роста offsetY
+  const y = ((offsetY % h) + h) % h;
+  // рисуем два тайла: верхний и нижний, чтобы был бесшовный цикл
+  ctx.drawImage(img, 0, y - h, canvas.width, h);
+  ctx.drawImage(img, 0, y,      canvas.width, h);
+}
+
 
 /* ── update ── */
 function update(){
   const now = performance.now();
   // --- Level 2: Skeletons ---
   if(phase==='game2' && !gameOver && !transitioning){
+    // vertical scroll advance (skeleton level) — 5 циклов
+    const _boneTarget = canvas.height * BONE_LOOPS_GOAL;
+    const _boneStep = Math.min(SCROLL_BONE, Math.max(0, _boneTarget - boneDist));
+    scrollBoneY += _boneStep;
+    boneDist    += _boneStep;
+    if(boneDist >= _boneTarget && !transitioning){
+      startTransition('Bug Hive','game');
+    }
+
     const controls=true;
     // player movement (same as game)
-    if(keys.ArrowLeft  && elf.x>130){ elf.x -= 5; elf.img=elfL; }
-    if(keys.ArrowRight && elf.x+elf.w<canvas.width-130){ elf.x += 5; elf.img=elfR; }
+    if(keys.ArrowLeft  && elf.x>130){ elf.x -= 5; elf.img=elfL; elf.face='L'; }
+    if(keys.ArrowRight && elf.x+elf.w<canvas.width-130){ elf.x += 5; elf.img=elfR; elf.face='R'; }
 
     // arrows
     arrows.forEach((a,i)=>{ a.y+=a.dy; if(a.y<-30) arrows.splice(i,1); });
@@ -373,7 +435,7 @@ function update(){
       }
 
       // dead?
-      if(a.hp<=0){ archers.splice(i,1); skelKills++; spawnSparks(a.x+a.w/2,a.y+a.h/2,8); }
+      if(a.hp<=0){ archers.splice(i,1); skelKills++; spawnSparks(a.x+a.w/2,a.y+a.h/2,8); totalKills++; }
     }
 
     // bone shots
@@ -395,7 +457,7 @@ function update(){
             arrows.splice(ai,1); spawnSparks(a.x,a.y,4);
           }else{
             s.hp--; arrows.splice(ai,1); spawnSparks(s.x+s.w/2,s.y+s.h/2,7);
-            if(s.hp<=0){ skels.splice(si,1); skelKills++; }
+            if(s.hp<=0){ skels.splice(si,1); skelKills++; totalKills++; }
           }
           break;
         }
@@ -408,7 +470,7 @@ function update(){
         const r=archers[ii], a=arrows[ai];
         if(hit(a,r)){
           r.hp--; arrows.splice(ai,1); spawnSparks(r.x+r.w/2,r.y+r.h/2,7);
-          if(r.hp<=0){ archers.splice(ii,1); skelKills++; }
+          if(r.hp<=0){ archers.splice(ii,1); skelKills++; totalKills++; }
           break;
         }
       }
@@ -444,10 +506,19 @@ function update(){
 
   if((phase!=='game'&&phase!=='boss')||gameOver||transitioning) return;
 
+// --- Bug level: вертикальный скролл «вверх» по циклам; стоп на боссе
+if(phase==='game'){
+  const _bugTarget = canvas.height * BUG_LOOPS_GOAL;
+  const _bugStep = Math.min(SCROLL_BUG, Math.max(0, _bugTarget - bugDist));
+  scrollBugY += _bugStep; bugDist += _bugStep;
+  if(bugDist >= _bugTarget && !boss) startBoss();
+}
+
+
   const controls=(phase==='game')||(phase==='boss');
   if(controls){
-    if(keys.ArrowLeft && elf.x>130){ elf.x-=5; elf.img=elfL; }
-    if(keys.ArrowRight&& elf.x+elf.w<canvas.width-130){ elf.x+=5; elf.img=elfR; }
+    if(keys.ArrowLeft && elf.x>130){ elf.x-=5; elf.img=elfL; elf.face='L'; }
+    if(keys.ArrowRight&& elf.x+elf.w<canvas.width-130){ elf.x+=5; elf.img=elfR; elf.face='R'; }
   }
 
   arrows.forEach((a,i)=>{a.y+=a.dy;if(a.y<-30)arrows.splice(i,1);});
@@ -473,7 +544,7 @@ function update(){
   // arrows vs bugs
   arrows.forEach((a,ai)=>bugs.forEach((b,bi)=>{
     if(hit(a,b)){
-      playHit(); spawnSparks(b.x+b.w/2,b.y+b.h/2,7); arrows.splice(ai,1); bugs.splice(bi,1); score++;
+      playHit(); spawnSparks(b.x+b.w/2,b.y+b.h/2,7); arrows.splice(ai,1); bugs.splice(bi,1); score++; totalKills++;
       bossProg = Math.min(BOSS_MAX, bossProg + BOSS_KILL_BONUS);
       if(phase==='game' && bossProg>=BOSS_MAX) startBoss();
     }
@@ -504,13 +575,13 @@ function update(){
       if(hit(a,boss)){
         playHit(); spawnSparks(boss.x+boss.w/2, boss.y+boss.h/2, 10); arrows.splice(ai,1);
         boss.hitFlash=20; bossHp--;
-        if(bossHp<=0){ startFinalSequence(); }
+        if(bossHp<=0){ totalKills++; startFinalSequence(); }
       }
     });
   }
 
   // страховка: как только порог достигнут — запускаем босса
-  if(phase==='game' && score>=30 && !boss) startBoss();
+  /* loop-gate: disabled */ if(false && phase==='game' && score>=30 && !boss) startBoss();
 }
 
 /* ── spawn bugs ── */
@@ -531,7 +602,7 @@ setInterval(()=>{
   if(walkers+shields < 5){
     const kind = Math.random()<0.6 ? 'walker' : 'shield';
     const x = Math.floor(80 + Math.random()*(canvas.width-160));
-    const dy = kind==='walker' ? (0.35+Math.random()*0.25) : (0.30+Math.random()*0.20);
+    const dy = kind==='walker' ? (1.20+Math.random()*0.50) : (1.00+Math.random()*0.40);
     skels.push({
       kind, x, y:-64, w:48, h:64, dy, hp:(kind==='shield'?3:2),
       anim:0, seed: Math.random()*Math.PI*2,
@@ -562,7 +633,7 @@ setInterval(()=>{
   
   // boss meter fills over time too
   bossProg = Math.min(BOSS_MAX, bossProg + BOSS_SEC_RATE);
-  if(bossProg>=BOSS_MAX){ startBoss(); }
+  /* loop-gate: disabled */ if(false && bossProg>=BOSS_MAX){ startBoss(); }
 const LANE_LEFT=130, LANE_RIGHT=canvas.width-130;
   const BW=45, BH=45;
   const b={x:Math.floor(LANE_LEFT+Math.random()*(LANE_RIGHT-LANE_LEFT-BW)),
@@ -624,12 +695,25 @@ function drawStory(){
 
 function drawGame2(){
   // background
-  if(ready(bgBone)) ctx.drawImage(bgBone,0,0,canvas.width,canvas.height);
+  drawScrollingBG(bgBone, scrollBoneY);
 
   // elf
-  drawShadow(elf.x, elf.y, elf.w, elf.h, 0.90, 0.22, 10);
-  if(ready(elf.img)) ctx.drawImage(elf.img,elf.x,elf.y,elf.w,elf.h);
-
+    drawElfShadow(); drawElfGlow();
+const _now = performance.now();
+const _shot = elf.shootFX.active && _now < elf.shootFX.until;
+if(elf.face==='R'){
+  const img = _shot ? elfR_release : elfR_taut;
+  if(ready(img)) ctx.drawImage(img, elf.x, elf.y, elf.w, elf.h);
+}else{
+  if(_shot){
+    const img = elfR_release;
+    if(ready(img)){ ctx.save(); ctx.translate(elf.x+elf.w,0); ctx.scale(-1,1); ctx.drawImage(img, 0, elf.y, elf.w, elf.h); ctx.restore(); }
+  }else{
+    const img = elfL_taut;
+    if(ready(img)) ctx.drawImage(img, elf.x, elf.y, elf.w, elf.h);
+  }
+}
+if(elf.shootFX.active && _now >= elf.shootFX.until) elf.shootFX.active=false;
   // arrows with glow
   arrows.forEach(a=>{
     if(arrowReady){
@@ -672,39 +756,12 @@ function drawGame2(){
 
   // HUD (hearts + kills)
   for(let i=0;i<lives;i++) ctx.drawImage(heartImg,20+i*50,20,40,40);
-  ctx.fillStyle='#fff'; ctx.font='24px monospace'; ctx.textAlign='left';
-  ctx.fillText('Kills: '+skelKills+' / '+SKEL_GOAL, 20, 84);
+  ctx.fillStyle='#fff'; ctx.font='24px monospace'; ctx.textAlign='right';
+  ctx.fillText('Total: '+totalKills,canvas.width-20,46);
 
-  // heart broken FX
-  if(heartFx){
-    const now = performance.now();
-    if(now < heartFx.until){
-      ctx.save();
-      ctx.globalAlpha = 0.7 + 0.3*Math.sin(now*0.05);
-      if(heartBroken.ok && ready(heartBroken.img)){
-        ctx.drawImage(heartBroken.img, heartFx.x, heartFx.y, 40, 40);
-      }
-      ctx.restore();
-    } else { heartFx=null; }
-  }
-
-  // sparks
-  if(sparkImg && sparkImg.complete){
-    ctx.save();
-    for(const p of sparks){
-      ctx.globalAlpha = Math.max(0, Math.min(1, p.life/260));
-      ctx.drawImage(sparkImg, p.x, p.y, 16, 16);
-    }
-    ctx.restore();
-  }
-
-  // level fade overlay
-  if(lvlFade>0){
-    ctx.fillStyle = 'rgba(0,0,0,'+lvlFade+')';
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-  }
-
-    // heart broken FX
+  
+    // Boss meter bar (top-left, above hearts)
+  const BW = 210, BH = 10, BX = 20, BY = 12;// heart broken FX
   if(heartFx){
     const now = performance.now();
     if(now < heartFx.until){
@@ -735,6 +792,7 @@ if(gameOver){
   }
 }
 
+/* ── postBoss: мигание и растворение босса ── */
 function drawGame(){
 
 
@@ -742,12 +800,25 @@ function drawGame(){
 
 
 
-  ctx.drawImage(bgImg,0,0,canvas.width,canvas.height);
+  drawScrollingBG(bgImg, scrollBugY);
 
   // эльфийка
-  drawShadow(elf.x, elf.y, elf.w, elf.h);
-  ctx.drawImage(elf.img,elf.x,elf.y,elf.w,elf.h);
-
+    drawElfShadow();
+const _nowg = performance.now();
+const _shotg = elf.shootFX.active && _nowg < elf.shootFX.until;
+if(elf.face==='R'){
+  const img = _shotg ? elfR_release : elfR_taut;
+  if(ready(img)) ctx.drawImage(img, elf.x, elf.y, elf.w, elf.h);
+}else{
+  if(_shotg){
+    const img = elfR_release;
+    if(ready(img)){ ctx.save(); ctx.translate(elf.x+elf.w,0); ctx.scale(-1,1); ctx.drawImage(img, 0, elf.y, elf.w, elf.h); ctx.restore(); }
+  }else{
+    const img = elfL_taut;
+    if(ready(img)) ctx.drawImage(img, elf.x, elf.y, elf.w, elf.h);
+  }
+}
+if(elf.shootFX.active && _nowg >= elf.shootFX.until) elf.shootFX.active=false;
   // стрелы (glow + core)
   arrows.forEach(a=>{
     if(arrowReady){
@@ -788,18 +859,12 @@ function drawGame(){
 
   // HUD
   for(let i=0;i<lives;i++) ctx.drawImage(heartImg,20+i*50,20,40,40);
-  ctx.fillStyle='#fff'; ctx.font='26px monospace'; ctx.textAlign='right';
-  ctx.fillText('Score: '+score,canvas.width-20,46);
+  ctx.fillStyle='#fff'; ctx.font='24px monospace'; ctx.textAlign='right';
+  ctx.fillText('Total: '+totalKills,canvas.width-20,46);
 
   
     // Boss meter bar (top-left, above hearts)
-  const BW = 210, BH = 10, BX = 20, BY = 12;
-  ctx.fillStyle='rgba(255,255,255,0.15)'; ctx.fillRect(BX,BY,BW,BH);
-  ctx.fillStyle='#86e57f'; ctx.fillRect(BX,BY,Math.floor(BW*(bossProg/BOSS_MAX)),BH);
-  ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.strokeRect(BX,BY,BW,BH);
-  ctx.font='14px monospace'; ctx.textAlign='left'; ctx.fillStyle='#ddd';
-  ctx.fillText('Boss '+Math.floor(bossProg)+'%', BX, BY-2);
-  // heart broken FX
+  const BW = 210, BH = 10, BX = 20, BY = 12;// heart broken FX
   if(heartFx){
     const now = performance.now();
     if(now < heartFx.until){
@@ -845,18 +910,12 @@ function drawPostBoss(){
 
   // HUD
   for(let i=0;i<lives;i++) ctx.drawImage(heartImg,20+i*50,20,40,40);
-  ctx.fillStyle='#fff'; ctx.font='26px monospace'; ctx.textAlign='right';
-  ctx.fillText('Score: '+score,canvas.width-20,46);
+  ctx.fillStyle='#fff'; ctx.font='24px monospace'; ctx.textAlign='right';
+  ctx.fillText('Total: '+totalKills,canvas.width-20,46);
 
   
     // Boss meter bar (top-left, above hearts)
-  const BW = 210, BH = 10, BX = 20, BY = 12;
-  ctx.fillStyle='rgba(255,255,255,0.15)'; ctx.fillRect(BX,BY,BW,BH);
-  ctx.fillStyle='#86e57f'; ctx.fillRect(BX,BY,Math.floor(BW*(bossProg/BOSS_MAX)),BH);
-  ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.strokeRect(BX,BY,BW,BH);
-  ctx.font='14px monospace'; ctx.textAlign='left'; ctx.fillStyle='#ddd';
-  ctx.fillText('Boss '+Math.floor(bossProg)+'%', BX, BY-2);
-// страховки: если что — сразу к встрече
+  const BW = 210, BH = 10, BX = 20, BY = 12;// страховки: если что — сразу к встрече
   if(!end || !boss){ end=null; if(!reunion) startReunion(); return; }
 
   const now=performance.now();
@@ -986,6 +1045,7 @@ function drawCredits(){
 
 /* ── reset ── */
 function resetGame(){
+  scrollBoneY=0; scrollBugY=0; boneDist=0; 
   resetTransitions();
   gameOver=false; bossGraceUntil=0;
 
@@ -995,6 +1055,7 @@ function resetGame(){
   elf.x=336; elf.y=920-48-40; elf.img=elfR;
   arrows.length=0; bugs.length=0; spits.length=0; sparks.length=0; heartFx=null; skels.length=0; archers.length=0; boneShots.length=0; skelKills=0; lvlFade=0; lvlFadeDir=0;
   boss=null; bossHp=25; bossAppearing=true;
+  bugDist=0; totalKills=0;
   end=null; reunion=null; endIdx=0; endFade=0; endFadeDir=0;
 }
 
@@ -1010,3 +1071,4 @@ setTimeout(()=>{
 </script>
 </body>
 </html>
+  ctx.fillText('Path: '+Math.min(100, Math.floor(boneDist*100/boneDistGoal))+'%', 20, 110);

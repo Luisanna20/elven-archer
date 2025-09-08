@@ -24,23 +24,65 @@ addEventListener('resize',autoscale); autoscale();
 const canvas=document.getElementById('gameCanvas'), ctx=canvas.getContext('2d');
 ctx.imageSmoothingEnabled=false;
 const I=s=>{const i=new Image();i.src=s;return i;};
+// --- Global gameplay scale (bigger sprites without changing story/UI) ---
+const SCALE = 1.3; // try 1.5..2.0
+const s = n => Math.floor(n * SCALE);
+
+// === Overlay & Shadow assets (restored) ===
+
+// Try multiple possible filenames for user-provided overlay frames.
+const waterImgs = [ I('StoryPage001_water01.png'), I('StoryPage001_water02.png') ];
+const fireImgs  = [ I('StoryPage002_fire001.png'), I('StoryPage002_fire002.png') ];
+
+// Procedural oval shadow sprite (used in skeleton level and elsewhere).
+function makeShadowSprite(){
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 24;
+  const g = c.getContext('2d');
+  g.clearRect(0,0,c.width,c.height);
+  g.save();
+  g.translate(c.width/2, c.height/2);
+  g.beginPath();
+  g.ellipse(0, 0, c.width*0.48, c.height*0.42, 0, 0, Math.PI*2);
+  g.closePath();
+  const grd = g.createRadialGradient(0,0, 1, 0,0, Math.max(c.width,c.height)*0.5);
+  grd.addColorStop(0.0,'rgba(0,0,0,0.65)');
+  grd.addColorStop(1.0,'rgba(0,0,0,0.00)');
+  g.fillStyle = grd;
+  g.fill();
+  g.restore();
+  const img = new Image();
+  img.src = c.toDataURL('image/png');
+  return img;
+}
+const shadowImg = makeShadowSprite();
+
+// HUD & projectile assets
+const heartImg = I('heart.png');
+const arrowImg = I('arrow.png'); let arrowReady=false; arrowImg.onload=()=>arrowReady=true;
 const ready = img => img && img.complete && img.naturalWidth>0;
 
 /* умный загрузчик одного из имён (ищет рабочий файл и запоминает его) */
 function loadOneOf(candidates){
-  const state={img:new Image(), ok:false};
-  let i=0;
-  const tryNext=()=>{
-    if(i>=candidates.length){ console.warn('No sprite found for', candidates); return; }
-    const src=candidates[i++] + '?v=8'; // анти-кэш
-    const test=new Image();
-    test.onload=()=>{ state.img=test; state.ok=true; };
-    test.onerror=tryNext;
-    test.src=src;
+  const state = { img:new Image(), ok:false };
+  let i = 0;
+  const tryNext = () => {
+    if(i >= candidates.length){ console.warn('No sprite found for', candidates); return; }
+    const src = candidates[i++];
+    state.img = I(src);
+    if (state.img.complete) { state.ok = true; return; }
+    state.img.onload  = () => { state.ok = true; };
+    state.img.onerror = tryNext;
   };
   tryNext();
   return state;
 }
+
+// Broken-heart sprite (for losing life)
+const heartBroken = loadOneOf(['heart_broken.png']);
+
+
+
 
 /* ── images ── */
 
@@ -49,33 +91,102 @@ const bgBone = I('bg_bone_meadow.png');
 const skelWalk = [I('skel_walk_0.png'), I('skel_walk_1.png')];
 const skelShield = [I('skel_shield_0.png'), I('skel_shield_1.png')];
 const skelArcher = [I('skel_archer_0.png'), I('skel_archer_1.png')];
+
+// Necromancer boss sprites
+const necroIdle = [ I('mageboss_00.png'), I('mageboss_01.png'), I('mageboss_02.png'), I('mageboss_03.png') ];
+const necroCast = I('mageboss_04cast.png');
 const boneShardImg = I('bone_shard.png');
+const sparkImg = I('spark.png');
+const poisonImg = I('poison.png');
+
+// === Bandit level sprites (from folder listing) ===
+// Heavy knight: 2-frame toggle
+const knightFr = [ I('human_knight_00.png'), I('human_knight_01.png') ];
+// Dagger rogue: idle/run + throw
+const rogueFr  = [ I('human_dagger_00.png'), I('human_dagger_01.png') ];
+// Human mage: idle + cast (try common names; if some files absent, ready() will just skip drawing)
+// Projectiles
+const daggerImg   = I('dagger.png');
+const necroMagic  = [ I('mageboss_magic_01.png'), I('mageboss_magic_02.png') ];
+
+// === Human mage (Stage 2 bandit mage) ===
+const mageFr = [ I('human_mage_00.png'), I('human_mage_01.png') ];
+const fireballTex = [ I('fireball_01.png'), I('fireball_02.png') ];
+
+// === Bug level (Stage 3) ===
+const bugFr = [ I('bug.png'), I('bug1.png') ];
+const bossIdle = I('boss001.png');
+const bossHit  = I('boss002.png');
+
+// === Human mage (Stage 2 bandit mage) ===
+// small spark for hits/FX
+
 
 
 const startImg=I('StartPage.png'),  bgImg=I('background.png');
+// Bandit level background
+const bgBandit = I('background_01.png');
+
 const elfR=I('elf.png'), elfL=I('elf1.png');
 const elfR_taut=I('elf.png');
 const elfR_release=I('elf2.png');
 const elfL_taut=I('elf1.png');
 const elfL_release=I('elf3.png');
+// --- NEW: Elf animation frames (right-facing originals) ---
+const elfWalk = [I('elf001.png'), I('elf002.png'), I('elf003.png'), I('elf004.png')];
+const elfShoot = [I('elf_shoot_00.png'), I('elf_shoot_01.png')];
+const WALK_FPS = 8; // frames per second for walk cycle
 
-const bugFr=[I('bug.png'),I('bug1.png')];
-const shadowImg=I('shadow.png');
-let bugFrame=0; setInterval(()=>bugFrame^=1,150);
+// animation state
+let elfAnim = {walkIdx:0, lastStep:0};
+let elfPrev = {x:0, y:0};
 
-const bossIdle=I('boss001.png'), bossHit=I('boss002.png');
+function drawElfAnimated(){
+  const now = performance.now();
+  const moving = (Math.abs(elf.x-elfPrev.x)+Math.abs(elf.y-elfPrev.y)) > 0.01;
+  if(moving){
+    if(now - elfAnim.lastStep > 1000/WALK_FPS){
+      elfAnim.walkIdx = (elfAnim.walkIdx + 1) % elfWalk.length;
+      elfAnim.lastStep = now;
+    }
+  }else{
+    elfAnim.walkIdx = 0;
+  }
 
-const heartImg=I('heart.png');
-const arrowImg=I('arrow.png'); let arrowReady=false; arrowImg.onload=()=>arrowReady=true;
+  // choose frame: phased shooting > walk/idle
+  let img;
+  if(elf.shootFX && elf.shootFX.active){
+    const t0  = elf.shootFX.t0 || now;
+    const dur = Math.max(1, (elf.shootFX.until || (t0+200)) - t0);
+    const ph  = (now - t0) / dur; // 0..1
+    img = (elfShoot && (elfShoot[ ph < 0.6 ? 0 : 1 ])) || elfWalk[elfAnim.walkIdx] || elfWalk[0];
+    if(now >= elf.shootFX.until){ elf.shootFX.active=false; elf.shootFX.t0=0; }
+  }else{
+    img = elfWalk[elfAnim.walkIdx] || elfWalk[0];
+  }
 
-// fx images
-const heartBroken = loadOneOf(['heart_broken.png','hear_broken.png']);
-const sparkImg = I('spark.png');
+  if(ready(img)){
+    if(elf.face==='R'){
+      ctx.drawImage(img, elf.x, elf.y, elf.w, elf.h);
+    }else{
+      ctx.save();
+      ctx.translate(elf.x + elf.w, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(img, 0, elf.y, elf.w, elf.h);
+      ctx.restore();
+    }
+  }
 
+  // remember last position
+  elfPrev.x = elf.x; elfPrev.y = elf.y;
+}
 
-const poisonImg=I('poison.png');
-const storyImg=[1,2,3,4,5,6].map(n=>I(`StoryPage00${n}.png`));
-
+function IStory(n){
+  const img = I(`StoryPage${String(n).padStart(3,'0')}.png`);
+  img.onerror = ()=>{ img.onerror=null; img.src = `StoryPage_${n}.png`; };
+  return img;
+}
+const storyImg = Array.from({length:13},(_,i)=>IStory(i+1));
 /* ── финальная сцена ── */
 /* тут перебираем возможные имена файлов */
 const kat = loadOneOf(['katarina.png','Katarina.png','katarina.PNG','Katarina.PNG']);
@@ -91,6 +202,8 @@ const musBoss =M('boss-fight.mp3');
 const musVictory=M('Victory.mp3');
 
 function fade(a,to,step=0.02,dt=40){
+  // apply music master for non-zero targets
+  if(to>0){ to = Math.max(0, Math.min(1, to * musicMaster)); }
   try{ if(a._fadeId){ clearInterval(a._fadeId); a._fadeId=null; } }catch(_){}
   // clamp target
   if(to<0) to=0; else if(to>1) to=1;
@@ -135,23 +248,73 @@ const sHitB =new Audio('bow_hit.wav');  sHitB.volume=.9;
 const playShot=()=>sShotB.cloneNode().play().catch(()=>{});
 const playHit =()=>sHitB.cloneNode().play().catch(()=>{});
 
+function applySFXMaster(){
+  const base = [
+    sUghWAV, sUghMP3, sGameOver, sShotB, sHitB
+  ];
+  const baseVol = new Map([[sUghWAV,0.6],[sUghMP3,0.6],[sGameOver,0.8],[sShotB,0.55],[sHitB,0.9]]);
+  base.forEach(a=>{ try{ a.volume = Math.max(0, Math.min(1, (baseVol.get(a)||a.volume) * sfxMaster)); }catch(_e){} });
+}
+
+applySFXMaster();
+
 /* ── state ── */
 let phase='menu'; // menu→story→game→boss→postBoss→reunion→endSlides→credits
 let audioUnlocked=false, ignoreNextClick=false;
 let idx=0, fadeScr=0, fadeDir=0;
-let keys={}, lives=3, score=0, gameOver=false;
+let keys={}, lives=5, score=0, gameOver=false;
 let totalKills=0; // глобальный счётчик убийств (все карты подряд)
 let lastShot=0, shootCD=350, bugCnt=0;
+/* ── NES-like main menu ── */
+let menuItems = ['Новая игра','Настройки','Галерея','Создатели'];
+let menuIdx = 0;
+
+/* settings state */
+let musicMaster = 0.80; // 0..1
+let sfxMaster   = 1.00; // 0..1
+let settingsIdx = 0;    // 0: music, 1: sfx
+
+/* gallery state */
+const galleryImgs = [1,2,3,4,5].map(n=>I(`Image0${n}.png`));
+let galleryIdx = 0;
+function readyAny(list){ return list.some(im=>ready(im)); }
+
+const UI_BOTTOM_MARGIN = 170; // px from canvas bottom to bottom edge of menu panels
+
 // boss spawn meter
 let bossProg=0; // 0..100
 const BOSS_SEC_RATE=1, BOSS_KILL_BONUS=3, BOSS_MAX=100;
 
 /* entities */
 // --- vertical scrolling state ---
-let scrollBoneY=0, scrollBugY=0;
+
+/* ── Level 2: Bandit Lair state ── */
+// ===== SPAWN TUNING (dagger rogues) =====
+const ROGUE_MAX_ON_FIELD = 1;       // было 3 — ограничиваем до 2
+const ROGUE_SPAWN_INTERVAL = 3200;  // мс между партиями
+const ROGUE_SPAWN_BATCH = [1];  // чаще по одному, иногда по два
+let lastRogueSpawn = 0;             // таймер спавна
+
+let banditDist=0, SCROLL_BAND=0.8;
+let knights=[], rogues=[], thrownDaggers=[], mages=[], fireballs=[];
+
+// simple animation toggles
+let banditFrame=0; setInterval(()=>banditFrame^=1, 180);
+
+// mage cast texture pattern: 2x tex0, 2x tex1, then alternating (0,1,0,1), repeat
+const MAGE_CAST_PATTERN = [0,0,1,1,0,1,0,1];
+let mageCastPtr = 0;
+
+// boss: necromancer (for Level 2)
+let necro=null, necroHp=25, necroAppearing=true, necroCastT=0;
+// gating
+let banditSpawnsStopped=false;
+
+
+let scrollBoneY=0, scrollBugY=0, scrollBandY=0;
 const SCROLL_BONE = 0.8;   // px per frame (skeletons)
 const SCROLL_BUG  = 0.6;   // px per frame (bugs)
-const BONE_LOOPS_GOAL=5, BUG_LOOPS_GOAL=5;
+const BONE_LOOPS_GOAL=3, BUG_LOOPS_GOAL=3;
 let boneDist=0, bugDist=0; // travel to complete level (px); keep kills trigger too
 
 // --- transition reset helper (prevents stuck state on restart) ---
@@ -172,12 +335,12 @@ function startTransition(title,next){
   transitioning=true;
   tr.active=true; tr.stage=0; tr.title=title; tr.next=next; tr.t0=performance.now();
   tr.alpha=0; tr.tAlpha=0;
-  try{ fade(musStory,0); }catch(_){}
-  try{ fade(musGame,.6); }catch(_){}
+  if(next==='story'){ try{ fade(musGame,0); }catch(_){ } try{ fade(musVictory,0); }catch(_){ } try{ fade(musBoss,0); }catch(_){ } try{ fade(musStory,.6); }catch(_){ } } else { try{ fade(musStory,0); }catch(_){ } try{ fade(musVictory,0); }catch(_){ } try{ fade(musBoss,0); }catch(_){ } try{ fade(musGame,.6); }catch(_){ } }
 }
 
 // Durations (ms)
 const TR_FADE_OUT=800, TR_TITLE_IN=400, TR_TITLE_HOLD=900, TR_TITLE_OUT=400, TR_FADE_IN=800;
+
 
 function updateTransition(){
   if(!tr.active){ transitioning=false; return; }
@@ -190,22 +353,31 @@ function updateTransition(){
     if(dt>=TR_FADE_OUT){ tr.stage=1; tr.t0=now; tr.tAlpha=0; }
   }
   else if(tr.stage===1){
-    // Title in -> hold -> out (single timeline)
+    // Title in -> hold -> out
     if(dt <= TR_TITLE_IN){
       tr.tAlpha = dt/ TR_TITLE_IN;
     }else if(dt <= TR_TITLE_IN + TR_TITLE_HOLD){
       tr.tAlpha = 1;
     }else if(dt <= TR_TITLE_IN + TR_TITLE_HOLD + TR_TITLE_OUT){
-      const t = dt - (TR_TITLE_IN + TR_TITLE_HOLD);
-      tr.tAlpha = Math.max(0, 1 - t/ TR_TITLE_OUT);
+      tr.tAlpha = 1 - (dt - (TR_TITLE_IN + TR_TITLE_HOLD)) / TR_TITLE_OUT;
     }else{
-      // Switch phase now (on black)
+      // Switch scene
       if(tr.next==='game'){
+        // Enter Bug level — reset elf to bottom start
         try{ skels.length=0; archers.length=0; boneShots.length=0; }catch(_){}
         score=0;
-      
         scrollBugY=0; bugDist=0;
+        boss=null; bossHp=25; bossAppearing=true; bossGraceUntil=0;
+        // hard reset elf spawn point
+        elf.x = Math.floor(canvas.width/2 - elf.w/2);
+        elf.y = Math.floor(canvas.height - elf.h - 30);
+        arrows.length=0;
+      }else if(tr.next==='game2'){
+        // Enter Skeleton level
+        try{ bugs.length=0; spits.length=0; }catch(_){}
+        scrollBoneY=0; boneDist=0; boneDone=false;
       }
+      if(tr.next==='story' && pendingStoryResume>=0){ idx=pendingStoryResume; pendingStoryResume=-1; fadeDir=0; fadeScr=0; }
       phase = tr.next;
       tr.stage=2; tr.t0=now; tr.alpha=1; tr.tAlpha=0;
     }
@@ -215,25 +387,42 @@ function updateTransition(){
     tr.alpha = Math.max(0, 1 - dt/ TR_FADE_IN);
     if(dt>=TR_FADE_IN){ tr.alpha=0; tr.active=false; transitioning=false; }
   }
-
-  // ultimate watchdog: if stuck >10s, finish
-  if(now - (tr.startGuard|| (tr.startGuard=now)) > 10000){
-    tr.active=false; transitioning=false;
-  }
 }
-
 function drawTransitionOverlay(){
   if(!tr.active) return;
+
   ctx.save();
-  ctx.fillStyle='rgba(0,0,0,'+tr.alpha.toFixed(3)+')';
+  // darken scene according to current stage progress
+  ctx.fillStyle = 'rgba(0,0,0,' + tr.alpha.toFixed(3) + ')';
   ctx.fillRect(0,0,canvas.width,canvas.height);
-  if(tr.stage>=1){
+
+  if(tr.stage >= 1){
+    // smooth title fade in/out
     ctx.globalAlpha = tr.tAlpha;
-    ctx.fillStyle='#fff';
-    ctx.font='40px serif';
-    ctx.textAlign='center';
+
+    // soft drop shadow for the title
+    ctx.shadowColor = 'rgba(0,0,0,0.6)';
+    ctx.shadowBlur = 10;
+
+    // centered title
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.font = '48px serif'; // adjust if you want bigger
     ctx.fillText(tr.title, canvas.width/2, canvas.height/2);
+
+    // subtle underline
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = tr.tAlpha * 0.8;
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 2;
+    const L = 170; // half-length of the line
+    const Y = canvas.height/2 + 12;
+    ctx.beginPath();
+    ctx.moveTo(canvas.width/2 - L, Y);
+    ctx.lineTo(canvas.width/2 + L, Y);
+    ctx.stroke();
   }
+
   ctx.restore();
 }
 
@@ -250,7 +439,8 @@ let sparks=[];    // [{x,y,vx,vy,life}]
 let lvlFade=0, lvlFadeDir=0; // 0..1
 
 
-const elf={x:336,y:920-48-40,w:48,h:48,img:elfR};
+const elf={x:Math.floor(canvas.width/2 - s(48)/2), y:canvas.height - s(48) - 30, w:s(48), h:s(48), img:elfR};
+elfPrev = {x:elf.x, y:elf.y};
 elf.face='R'; elf.shootFX={active:false, until:0};
 
 const arrows=[], bugs=[], spits=[];
@@ -272,12 +462,63 @@ addEventListener('click',unlockAudio,{once:true,capture:true});
 addEventListener('keydown',unlockAudio,{once:true});
 
 /* ── controls ── */
+
 document.addEventListener('keydown',e=>{
   keys[e.key]=true;
 
   // quick restart after GAME OVER
-  if(gameOver && ((phase==='game2')||(phase==='game')||(phase==='boss')) && (e.key==='r'||e.key==='R'||e.key==='Enter')){
+  if(gameOver && ((phase==='game2')||(phase==='bandits')||(phase==='necroBoss')||(phase==='banditPostBoss')||(phase==='game')||(phase==='boss')) && (e.key==='r'||e.key==='R'||e.key==='Enter')){
     resetGame(); return;
+  }
+
+  // === MENU NAV ===
+  if(phase==='menu'){
+    if(e.key==='ArrowUp'){ menuIdx = (menuIdx - 1 + menuItems.length) % menuItems.length; }
+    else if(e.key==='ArrowDown'){ menuIdx = (menuIdx + 1) % menuItems.length; }
+    else if(e.key==='Enter'){
+      const sel = menuItems[menuIdx];
+      if(sel==='Новая игра'){ phase='story'; fade(musMenu,0); fade(musStory,.6); }
+      else if(sel==='Настройки'){ phase='settings'; }
+      else if(sel==='Галерея'){ phase='gallery'; }
+      else if(sel==='Создатели'){ phase='creators'; }
+    }
+    return;
+  }
+
+  // === SETTINGS NAV ===
+  if(phase==='settings'){
+    if(e.key==='ArrowUp'){ settingsIdx = (settingsIdx - 1 + 2) % 2; }
+    else if(e.key==='ArrowDown'){ settingsIdx = (settingsIdx + 1) % 2; }
+    else if(e.key==='ArrowLeft' || e.key==='ArrowRight'){
+      const delta = (e.key==='ArrowRight') ? 0.05 : -0.05;
+      if(settingsIdx===0){
+        musicMaster = Math.max(0, Math.min(1, musicMaster + delta));
+        // re-apply current music volumes by nudging fade to its current value
+        try{
+          [musMenu,musStory,musGame,musBoss,musVictory].forEach(a=>{
+            if(!a) return; fade(a, a.volume>0 ? a.volume/musicMaster : 0); // keeps relative target
+          });
+        }catch(_){}
+      }else if(settingsIdx===1){
+        sfxMaster = Math.max(0, Math.min(1, sfxMaster + delta));
+        applySFXMaster();
+      }
+    }else if(e.key==='Escape'){ phase='menu'; }
+    return;
+  }
+
+  // === GALLERY NAV ===
+  if(phase==='gallery'){
+    if(e.key==='ArrowLeft'){ galleryIdx = (galleryIdx - 1 + galleryImgs.length) % galleryImgs.length; }
+    else if(e.key==='ArrowRight'){ galleryIdx = (galleryIdx + 1) % galleryImgs.length; }
+    else if(e.key==='Escape'){ phase='menu'; }
+    return;
+  }
+
+  // === CREATORS PAGE ===
+  if(phase==='creators'){
+    if(e.key==='Escape'){ phase='menu'; }
+    return;
   }
 
   if(phase==='menu' && e.key==='Enter'){
@@ -287,10 +528,13 @@ document.addEventListener('keydown',e=>{
   // тестовый запуск босса
   if(e.key==='b' || e.key==='B') startBoss();
 
-  const canShoot=(phase==='game2')||(phase==='game')||(phase==='boss'&&!bossAppearing);
+  const canShoot=(phase==='game2')||(phase==='bandits')||(phase==='necroBoss')||(phase==='game')||(phase==='boss'&&!bossAppearing);
   if(canShoot && e.key===' ' && Date.now()-lastShot>shootCD){
-    arrows.push({x:elf.x+elf.w/2-8,y:elf.y,w:16,h:24,dy:-6});
-    elf.shootFX.active=true; elf.shootFX.until=performance.now()+120;
+    arrows.push({x:elf.x+elf.w/2 - s(8), y:elf.y, w:s(16), h:s(24), dy:-6});
+    const t0 = performance.now();
+elf.shootFX.active = true;
+elf.shootFX.t0 = t0;
+elf.shootFX.until = t0 + 220;
     playShot(); lastShot=Date.now();
   }
 });
@@ -300,11 +544,34 @@ canvas.addEventListener('click',()=>{
   if(ignoreNextClick){ignoreNextClick=false;return;}
   if(!audioUnlocked) return;
 
-  if(phase==='story'){ if(!transitioning) fadeDir=1; }
-  else if(phase==='menu'){ phase='story'; fade(musMenu,0); fade(musStory,.6); }
-  else if(phase==='endSlides'){ if(endFadeDir===0){ endFadeDir=1; } }
+  if(phase==='story'){
+    if(!transitioning){
+      const now = performance.now();
+      if(now < storyClickGuardUntil) return;
+      const linesFull = storyCurrentLines(idx);
+      const flat = (linesFull||[]).join('\n');
+      if(Math.floor(typePos) < flat.length){ typePos = flat.length; storyClickGuardUntil = now + 120; }
+      else {
+        const slides = storyTextRU[idx] || [];
+        if(storySlide + 1 < slides.length){ storySlide++; resetTyping(); storyClickGuardUntil = now + 120; }
+        else { fadeDir=1; storyClickGuardUntil = now + 220; }
+      }
+    }
+  }
+  else if(phase==='menu'){ /* click ignored in menu to keep NES keyboard flow */ }
+  else if(phase==='endSlides'){
+  // если текст не допечатан — сначала докручиваем до конца,
+  // иначе — запускаем переход к следующему слайду
+  const lines = endTextRU[endIdx] || [];
+  const flat  = (lines||[]).join(' ');
+  if(Math.floor(endTypePos) < flat.length){
+    endTypePos = flat.length;
+  }else if(endFadeDir===0){
+    endFadeDir = 1;
+  }
+}
   else if(phase==='credits'){ resetGame(); }
-  else if(((phase==='game2')||(phase==='game')||(phase==='boss')) && gameOver){ resetGame(); } // ✅ restart on click after GAME OVER
+  else if(((phase==='game2')||(phase==='bandits')||(phase==='necroBoss')||(phase==='banditPostBoss')||(phase==='game')||(phase==='boss')) && gameOver){ resetGame(); } // ✅ restart on click after GAME OVER (all gameplay phases)
 });
 
 /* ── helpers ── */
@@ -374,6 +641,12 @@ function drawScrollingBG(img, offsetY){
 
 /* ── update ── */
 function update(){
+  // --- failsafe: ensure skeleton -> story009..011 once on distance complete
+if(phase==='game2' && !transitioning){
+  const _target = canvas.height * BONE_LOOPS_GOAL;
+  if(boneDist >= _target - 0.5){ pendingStoryResume=8; storyMax=11; startTransition('Story','story'); }
+}
+
   const now = performance.now();
   // --- Level 2: Skeletons ---
   if(phase==='game2' && !gameOver && !transitioning){
@@ -383,7 +656,7 @@ function update(){
     scrollBoneY += _boneStep;
     boneDist    += _boneStep;
     if(boneDist >= _boneTarget && !transitioning){
-      startTransition('Bug Hive','game');
+      pendingStoryResume=8; storyMax=11; startTransition('Story','story');
     }
 
     const controls=true;
@@ -431,7 +704,7 @@ function update(){
         let dx = ex - (a.x + a.w/2), dy = ey - (a.y + a.h/2);
         const len = Math.max(1, Math.hypot(dx,dy));
         const spd = 3; dx = dx/len*spd; dy = dy/len*spd;
-        boneShots.push({x:a.x+a.w/2-7, y:a.y+a.h/2-7, w:14, h:14, dx, dy});
+        boneShots.push({x:a.x+a.w/2 - s(7), y:a.y+a.h/2 - s(7), w:s(14), h:s(14), dx, dy});
       }
 
       // dead?
@@ -483,27 +756,8 @@ function update(){
       p.x+=p.vx; p.y+=p.vy; p.vy+=0.05; p.life-=16;
       if(p.life<=0) sparks.splice(i,1);
     }
-// level completion
-    if(skelKills>=SKEL_GOAL && !transitioning){ startTransition('Bug Hive','game'); }
-
-    if(skelKills>=SKEL_GOAL && lvlFadeDir===0){ lvlFadeDir=1; }
-    if(lvlFadeDir!==0){
-      lvlFade += lvlFadeDir*0.06;
-      if(lvlFade>=1){
-        // transition to bug level
-        lvlFade=1; lvlFadeDir=-1;
-        // clear L2
-        skels.length=0; archers.length=0; boneShots.length=0;
-        arrows.length=0; // optional
-        score=0; // reset score for next level
-        phase='game'; // go to bug level (existing)
-        // fade stays at 1, drawGame will continue; we'll fade back
-      }else if(lvlFade<=0){
-        lvlFade=0; lvlFadeDir=0;
-      }
-    }
-  }
-
+}
+  
   if((phase!=='game'&&phase!=='boss')||gameOver||transitioning) return;
 
 // --- Bug level: вертикальный скролл «вверх» по циклам; стоп на боссе
@@ -552,9 +806,11 @@ if(phase==='game'){
 
   // boss logic
   if(phase==='boss' && boss){
+    if(boss.hitFlash>0) boss.hitFlash--; // decay hit flash
     if(bossAppearing){
       boss.y+=2;
-      if(boss.y>100){ bossAppearing=false; boss.dir='left'; }
+      if(boss.y>100){ bossAppearing=false; boss.dir='left'; 
+}
     }else{
       const MIN_X=210, MAX_X=510, SPEED=2;
       boss.x += boss.dir==='left'? -SPEED: SPEED;
@@ -584,12 +840,14 @@ if(phase==='game'){
   /* loop-gate: disabled */ if(false && phase==='game' && score>=30 && !boss) startBoss();
 }
 
-/* ── spawn bugs ── */
+  /* ── spawn bugs ── */
 
 
 /* ── spawn skeletons (game2) ── */
 let skelFrame=0; setInterval(()=>skelFrame^=1,180);
 
+
+let bugFrame=0; setInterval(()=>bugFrame^=1,220);
 setInterval(()=>{
   if(phase!=='game2' || gameOver || transitioning) return;
 
@@ -604,7 +862,7 @@ setInterval(()=>{
     const x = Math.floor(80 + Math.random()*(canvas.width-160));
     const dy = kind==='walker' ? (1.20+Math.random()*0.50) : (1.00+Math.random()*0.40);
     skels.push({
-      kind, x, y:-64, w:48, h:64, dy, hp:(kind==='shield'?3:2),
+      kind, x, y:-64, w:s(48), h:s(64), dy, hp:(kind==='shield'?3:2),
       anim:0, seed: Math.random()*Math.PI*2,
       shieldUp:false, shieldT:0
     });
@@ -616,7 +874,7 @@ setInterval(()=>{
     const ax = Math.floor(100 + Math.random()*(canvas.width-200));
     const ay = Math.floor(40 + Math.random()*100);
     archers.push({
-      x:ax, y:ay, w:48, h:64, hp:2,
+      x:ax, y:ay, w:s(48), h:s(64), hp:2,
       vx: (Math.random()<0.5?1:-1)*0.35, vy: (Math.random()<0.5?1:-1)*0.25,
       minX:40, maxX:canvas.width-88, minY:20, maxY:200,
       lastShot:0, shootCD: 2200 + Math.random()*1200,
@@ -635,11 +893,11 @@ setInterval(()=>{
   bossProg = Math.min(BOSS_MAX, bossProg + BOSS_SEC_RATE);
   /* loop-gate: disabled */ if(false && bossProg>=BOSS_MAX){ startBoss(); }
 const LANE_LEFT=130, LANE_RIGHT=canvas.width-130;
-  const BW=45, BH=45;
+  const BW=s(45), BH=s(45);
   const b={x:Math.floor(LANE_LEFT+Math.random()*(LANE_RIGHT-LANE_LEFT-BW)),
            y:0,w:BW,h:BH,dy:speed};
   bugs.push(b);
-  if(bugCnt%7===0) spits.push({x:b.x+16,y:b.y+b.h,w:24,h:24,dy:speed+2});
+  if(bugCnt%7===0) spits.push({x:Math.floor(b.x+b.w/2 - s(12)), y:b.y+b.h, w:s(24), h:s(24), dy:speed+2});
 },1000);
 
 /* ── boss start ── */
@@ -647,7 +905,7 @@ function startBoss(){
   if(phase==='boss') return;           // идемпотентность
   bossGraceUntil = performance.now()+800; // ~0.8s safety window
   phase='boss'; fade(musGame,0); fade(musBoss,.65);
-  boss={x:canvas.width/2-90,y:-180,w:180,h:180,hitFlash:0,name:'Scarlet Widow'};
+  boss={x:canvas.width/2 - s(180)/2, y:-s(180), w:s(180), h:s(180), hitFlash:0, name:'Scarlet Widow'};
   bossHp=25; bossAppearing=true;
 }
 
@@ -658,10 +916,441 @@ function startFinalSequence(){
 }
 
 /* ── draw ── */
+
+/* ── Bandit Lair update & draw ── */
+function updateBandits(){
+  if(gameOver || transitioning) return;
+
+  // vertical scroll advance (5 loops), then spawn boss
+  const target = canvas.height * 3;
+  const step = Math.min(SCROLL_BAND, Math.max(0, target - banditDist));
+  scrollBandY += step; banditDist += step;
+  if(banditDist >= target){ banditSpawnsStopped=true; }
+  if(banditSpawnsStopped && !necro){
+    const mobsLeft = knights.length + rogues.length + mages.length;
+    if(mobsLeft===0){ startNecro(); }
+  }
+
+  const now = performance.now();
+
+  // player movement
+  if(keys.ArrowLeft  && elf.x>130){ elf.x -= 5; elf.img=elfL; elf.face='L'; }
+  if(keys.ArrowRight && elf.x+elf.w<canvas.width-130){ elf.x += 5; elf.img=elfR; elf.face='R'; }
+
+  // arrows travel
+  for(let i=arrows.length-1;i>=0;i--){
+    const a=arrows[i]; a.y+=a.dy; if(a.y<-30) arrows.splice(i,1);
+  }
+
+  // heavy knight (slow chase, 5 hp, instant kill on touch)
+  for(let i=knights.length-1;i>=0;i--){
+    const k = knights[i];
+    const ex = elf.x + elf.w/2, cx = k.x + k.w/2;
+    const dirX = Math.sign(ex - cx);
+    const HOMING=0.6, FORWARD=0.25;  // tweak here
+    k.x += dirX * HOMING;
+    k.y += step + FORWARD;   // мировой дрейф + собственный шаг вперёд
+    if(!k.switched && k.y > canvas.height*0.50){ k.switched = true; }
+    if(k.y>canvas.height){ knights.splice(i,1); continue; }
+    if(hit(k,elf)){ gameOver=true; playGameOver(); }
+  }
+
+  // dagger rogues
+  for(let i=rogues.length-1;i>=0;i--){
+    const r = rogues[i];
+    r.y += step + r.dy;
+    if(!r.started && r.y > canvas.height*0.25){ r.started=true; r.lastThrow=now; }
+    if(r.started && now - r.lastThrow > r.throwCD){
+      r.lastThrow = now;
+      r.castFlash = 180; // show throw frame briefly
+      const spd = 3.2, d = Math.SQRT1_2;
+      thrownDaggers.push({x:r.x+r.w/2 - s(8), y:r.y+r.h/2 - s(8), w:s(16), h:s(16), dx: spd*d, dy: spd*d});
+      thrownDaggers.push({x:r.x+r.w/2 - s(8), y:r.y+r.h/2 - s(8), w:s(16), h:s(16), dx:-spd*d, dy: spd*d});
+    }
+    if(r.castFlash>0) r.castFlash-=16;
+    if(r.y>canvas.height){ rogues.splice(i,1); continue; }
+    if(hit(r,elf)){ rogues.splice(i,1); lose(); continue; }
+  }
+
+  // daggers
+  for(let i=thrownDaggers.length-1;i>=0;i--){
+    const d=thrownDaggers[i];
+    d.x += d.dx; d.y += step + d.dy;
+    if(d.x<-30||d.x>canvas.width+30||d.y>canvas.height+30){ thrownDaggers.splice(i,1); continue; }
+    if(hit(d,elf)){ thrownDaggers.splice(i,1); lose(); }
+  }
+
+  // mages (patrol, shoot toward elf)
+  for(let i=mages.length-1;i>=0;i--){
+    const m=mages[i];
+    m.x += m.vx; m.y += step + m.vy;
+    if(m.x<m.minX){m.x=m.minX; m.vx=Math.abs(m.vx);} if(m.x>m.maxX){m.x=m.maxX; m.vx=-Math.abs(m.vx);}
+    if(m.y<m.minY){m.y=m.minY; m.vy=Math.abs(m.vy);} if(m.y>m.maxY){m.y=m.maxY; m.vy=-Math.abs(m.vy);}
+
+    if(now - m.lastShot > m.shootCD){
+      m.lastShot=now; m.shootCD = 1600 + Math.random()*900;
+      const ex = elf.x+elf.w/2, ey=elf.y+elf.h/2;
+      let dx = ex - (m.x + m.w/2), dy = ey - (m.y + m.h/2);
+      const len=Math.max(1, Math.hypot(dx,dy)); const spd=3.4; dx=dx/len*spd; dy=dy/len*spd;
+      const texIndex = MAGE_CAST_PATTERN[mageCastPtr++ % MAGE_CAST_PATTERN.length];
+      fireballs.push({x:m.x+m.w/2-10,y:m.y+m.h/2-10,w:s(20),h:s(20),dx,dy,tex:texIndex, ang:0, spin:(Math.random()<0.5?-1:1)*0.22});
+      m.castFlash=140;
+    }
+
+    if(hit(m,elf)){ m.hp=0; lose(); }
+    if(m.hp<=0){ mages.splice(i,1); totalKills++; spawnSparks(m.x+m.w/2,m.y+m.h/2,8); }
+  }
+
+  // fireballs
+  for(let i=fireballs.length-1;i>=0;i--){
+    const f=fireballs[i];
+    f.x+=f.dx; f.y+= step + f.dy; f.ang = (f.ang||0) + (f.spin||0);
+    if(f.x<-30||f.x>canvas.width+30||f.y>canvas.height+30||f.y<-30){ fireballs.splice(i,1); continue; }
+    if(hit(f,elf)){ fireballs.splice(i,1); lose(); }
+  }
+
+  // arrows vs enemies
+  for(let ai=arrows.length-1; ai>=0; ai--){
+    const a=arrows[ai]; let hitAny=false;
+    for(let i=knights.length-1;i>=0;i--){ const k=knights[i]; if(hit(a,k)){ k.hp--; arrows.splice(ai,1); spawnSparks(k.x+k.w/2,k.y+k.h/2,7); hitAny=true; if(k.hp<=0){ knights.splice(i,1); totalKills++; } break; } }
+    if(hitAny) continue;
+    for(let i=rogues.length-1;i>=0;i--){ const r=rogues[i]; if(hit(a,r)){ r.hp--; arrows.splice(ai,1); spawnSparks(r.x+r.w/2,r.y+r.h/2,7); hitAny=true; if(r.hp<=0){ rogues.splice(i,1); totalKills++; } break; } }
+    if(hitAny) continue;
+    for(let i=mages.length-1;i>=0;i--){ const m=mages[i]; if(hit(a,m)){ m.hp--; arrows.splice(ai,1); spawnSparks(m.x+m.w/2,m.y+m.h/2,7); hitAny=true; if(m.hp<=0){ mages.splice(i,1); totalKills++; } break; } }
+  }
+
+  // update sparks
+  for(let i=sparks.length-1;i>=0;i--){ const p=sparks[i]; p.x+=p.vx; p.y+=p.vy; p.vy+=0.05; p.life-=16; if(p.life<=0) sparks.splice(i,1); }
+}
+
+function drawBandits(){
+  drawScrollingBG(bgBandit, scrollBandY);
+
+  // elf
+  drawElfShadow();
+  drawElfAnimated();
+
+  // arrows
+  arrows.forEach(a=>{
+    if(arrowReady){
+      ctx.save(); ctx.globalCompositeOperation='lighter';
+      ctx.shadowColor='rgba(255,200,0,0.85)'; ctx.shadowBlur=18; ctx.drawImage(arrowImg,a.x,a.y,a.w,a.h); ctx.restore();
+      ctx.drawImage(arrowImg,a.x,a.y,a.w,a.h);
+    }else{ ctx.fillStyle='yellow'; ctx.fillRect(a.x,a.y,a.w,a.h); }
+  });
+
+  // knights
+  knights.forEach(k=>{
+    drawShadow(k.x, k.y, k.w, k.h, 0.95, 0.22, 9);
+    const fr = k.switched ? knightFr[1] : knightFr[0];
+    if(ready(fr)) ctx.drawImage(fr, k.x, k.y, k.w, k.h);
+  });
+
+  // rogues
+  rogues.forEach(r=>{
+    drawShadow(r.x, r.y, r.w, r.h, 0.95, 0.22, 9);
+    const fr = (r.castFlash>0) ? rogueFr[1] : rogueFr[0];
+    if(ready(fr)) ctx.drawImage(fr, r.x, r.y, r.w, r.h);
+  });
+
+  // thrown daggers
+  thrownDaggers.forEach(d=>{ if(ready(daggerImg)) ctx.drawImage(daggerImg, d.x, d.y, d.w, d.h); else { ctx.fillStyle='#ccc'; ctx.fillRect(d.x,d.y,d.w,d.h); } });
+
+  // mages
+  mages.forEach(m=>{
+    drawShadow(m.x, m.y, m.w, m.h, 0.95, 0.22, 9);
+    const fr = (m.castFlash>0) ? mageFr[1] : mageFr[0];
+    if(ready(fr)) ctx.drawImage(fr, m.x, m.y, m.w, m.h);
+    if(m.castFlash>0) m.castFlash-=16;
+  });
+
+  // fireballs
+  fireballs.forEach(f=>{ const sheet = (f.boss? necroMagic : fireballTex); const im = sheet[f.tex] || sheet[0]; if(ready(im)) { ctx.save(); ctx.translate(f.x+f.w/2, f.y+f.h/2); ctx.rotate(f.ang||0); ctx.drawImage(im, -f.w/2, -f.h/2, f.w, f.h); ctx.restore(); } else { ctx.fillStyle='#f80'; ctx.fillRect(f.x,f.y,f.w,f.h); } });
+
+  // HUD
+  for(let i=0;i<lives;i++) ctx.drawImage(heartImg,20+i*50,20,40,40);
+  ctx.fillStyle='#fff'; ctx.font='24px monospace'; ctx.textAlign='right'; ctx.fillText('Total: '+totalKills,canvas.width-20,46);
+
+  // sparks
+  if(sparkImg && sparkImg.complete){
+    ctx.save();
+    for(const p of sparks){ ctx.globalAlpha = Math.max(0, Math.min(1, p.life/260)); ctx.drawImage(sparkImg, p.x, p.y, 16, 16); }
+    ctx.restore();
+  }
+
+  // boss
+  if(necro){ drawNecro(); }
+
+  if(gameOver){
+    ctx.fillStyle='red'; ctx.font='48px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('GAME OVER',canvas.width/2,canvas.height/2);
+    ctx.font='22px monospace'; ctx.fillStyle='#fff';
+    ctx.fillText('Click or press R to restart',canvas.width/2,canvas.height/2+40);
+  }
+}
+
+// Spawners for bandits
+setInterval(()=>{
+  if(phase!=='bandits' || gameOver || transitioning || necro || banditSpawnsStopped) return;
+  // Knight: keep at most 1
+  if(knights.length<1){ const x = Math.floor(130 + Math.random()*(canvas.width-260-48)); knights.push({x, y:-s(70/1.4), w:s(110), h:s(110), hp:5, switched:false}); }
+
+  // Rogues: use tuning constants + cooldown
+  const now = performance.now();
+  if(rogues.length < ROGUE_MAX_ON_FIELD && (now - lastRogueSpawn) > ROGUE_SPAWN_INTERVAL){
+    lastRogueSpawn = now;
+    const batch = ROGUE_SPAWN_BATCH[Math.floor(Math.random()*ROGUE_SPAWN_BATCH.length)];
+    for(let i=0;i<batch;i++){
+      const x = Math.floor(130 + Math.random()*(canvas.width-260-40));
+      rogues.push({x, y:-s(60/1.4), w:s(44), h:s(60), dy:(1.2+Math.random()*0.4)*0.35, hp:2, started:false, lastThrow:0, throwCD: 1500+Math.random()*900, castFlash:0});
+    }
+  }
+
+  // Mage: ensure 1
+  if(mages.length<1){
+    const ax = Math.floor(100 + Math.random()*(canvas.width-200));
+    const ay = Math.floor(40 + Math.random()*100);
+    mages.push({ x:ax, y:ay, w:s(48), h:s(64), hp:2, vx:(Math.random()<0.5?1:-1)*0.35, vy:(Math.random()<0.5?1:-1)*0.25, minX:40, maxX:canvas.width-88, minY:20, maxY:200, lastShot:0, shootCD: 1500 + Math.random()*1200, castFlash:0 });
+  }
+}, 1400);
+
+// Necromancer boss
+function startNecro(){ phase='necroBoss'; fade(musGame,0); fade(musBoss,.65); necro={x:canvas.width/2 - s(144)/2, y:-s(140/1.4), w:s(144), h:s(144), hurt:0, dir:'left', frame:0, animT:0}; necroHp=25; necroAppearing=true; necroCastT=0; }
+
+function drawNecro(){
+  if(!necro) return;
+  if(necroAppearing){ necro.y += 2; if(necro.y > 80){ necroAppearing=false; } }
+  else{
+    const MIN_X=160, MAX_X=canvas.width-160, SPEED=1.8;
+    necro.x += (necro.dir==='left' ? -SPEED : SPEED);
+    if(necro.x<MIN_X){necro.x=MIN_X; necro.dir='right';}
+    if(necro.x>MAX_X){necro.x=MAX_X; necro.dir='left';}
+    const now=performance.now();
+    // idle anim step
+    if(now - (necro.animClock||0) > 180){ necro.animClock = now; necro.frame = (necro.frame+1)%necroIdle.length; }
+
+    if(now - necroCastT > 900){
+      necroCastT = now;
+      if(Math.random()<0.5){
+        const ex=elf.x+elf.w/2, ey=elf.y+elf.h/2;
+        let dx=ex-(necro.x+necro.w/2), dy=ey-(necro.y+necro.h/2);
+        const len=Math.max(1,Math.hypot(dx,dy)); const spd=3.2; dx=dx/len*spd; dy=dy/len*spd;
+        fireballs.push({x:necro.x+necro.w/2-10,y:necro.y+necro.h/2-10,w:s(20),h:s(20),dx,dy,tex:0, boss:true, ang:0, spin:0.20});
+      }else{
+        fireballs.push({x:necro.x+necro.w/2-10,y:necro.y+necro.h-10,w:s(20),h:s(20),dx:0,dy:3.0,tex:1, boss:true, ang:0, spin:0.15});
+      }
+      necro.castFlash=120;
+    }
+  }
+  drawShadow(necro.x, necro.y, necro.w, necro.h, 0.90, 0.22, 10);
+  const idle = necroIdle[necro.frame%necroIdle.length];
+  const img = (necro.castFlash>0) ? necroCast : idle;
+  if(ready(img)) ctx.drawImage(img, necro.x, necro.y, necro.w, necro.h);
+  if(necro.castFlash>0) necro.castFlash-=16;
+  const barW=200, barH=10, p = necroHp/25;
+  ctx.fillStyle='#333'; ctx.fillRect(necro.x, necro.y-16, barW, barH);
+  ctx.fillStyle='#5af'; ctx.fillRect(necro.x, necro.y-16, Math.max(0,barW*p), barH);
+  ctx.strokeStyle='#fff'; ctx.strokeRect(necro.x, necro.y-16, barW, barH);
+  // name
+  ctx.fillStyle='#fff'; ctx.font='18px monospace'; ctx.textAlign='center'; ctx.fillText('Necromancer', necro.x+necro.w/2, necro.y-26);
+  for(let ai=arrows.length-1; ai>=0; ai--){
+    const a=arrows[ai];
+    if(a.x<necro.x+necro.w && a.x+a.w>necro.x && a.y<necro.y+necro.h && a.y+a.h>necro.y){
+      arrows.splice(ai,1); necroHp--; spawnSparks(necro.x+necro.w/2,necro.y+necro.h/2,10);
+      if(necroHp<=0){ startBanditPostBoss(); return; }
+    }
+  }
+}
+
+/* ── after necro death: freeze + elf runs to boss -> StoryPage012 -> Level 3 ── */
+let banditAfter=null;
+function startBanditPostBoss(){
+  phase='banditPostBoss'; gameOver=false;
+  // очистка поля
+  knights.length=0; rogues.length=0; mages.length=0; thrownDaggers.length=0; fireballs.length=0;
+  fade(musBoss,0); fade(musVictory,.75);
+  // зафиксируем координаты падшего босса на момент смерти
+  const tx=(necro? (necro.x+necro.w/2-elf.w/2) : elf.x);
+  const ty=(necro? Math.min(necro.y+necro.h+10, elf.y) : elf.y);
+  banditAfter={mode:'run', targetX:tx, targetY:ty, t0:performance.now(), done:false};
+}
+
+
+function drawBanditPostBoss(){
+  drawScrollingBG(bgBandit, scrollBandY);
+  // freeze the boss sprite on the ground
+  if(necro){
+    drawShadow(necro.x, necro.y, necro.w, necro.h, 0.90, 0.22, 10);
+    const img = necroIdle[0];
+    if(ready(img)) ctx.drawImage(img, necro.x, necro.y, necro.w, necro.h);
+  }
+  const speed=3.0;
+  // move towards target both by X and Y
+  if(Math.abs(elf.x - banditAfter.targetX) > 2){
+    if(elf.x < banditAfter.targetX){ elf.x += speed; elf.face='R'; elf.img=elfR; } 
+    else { elf.x -= speed; elf.face='L'; elf.img=elfL; }
+  }
+  if(Math.abs(elf.y - banditAfter.targetY) > 2){
+    if(elf.y > banditAfter.targetY){ elf.y -= speed; } else { elf.y += speed; }
+  }
+  // when close enough -> go to StoryPage012 (once)
+  if(!banditAfter.done && Math.abs(elf.x - banditAfter.targetX) <= 2 && Math.abs(elf.y - banditAfter.targetY) <= 2){
+    banditAfter.done = true;
+    try{ fade(musVictory,0); }catch(_){}
+    pendingStoryResume = 11; storyMax = 13; startTransition('Story','story');
+  }
+  // failsafe: force transition after 6s
+  if(!banditAfter.done && performance.now() - banditAfter.t0 > 6000){
+    banditAfter.done = true;
+    try{ fade(musVictory,0); }catch(_){}
+    pendingStoryResume = 11; storyMax = 13; startTransition('Story','story');
+  }
+  // draw elf & HUD
+  drawElfShadow();
+  drawElfAnimated();
+  for(let i=0;i<lives;i++) ctx.drawImage(heartImg,20+i*50,20,40,40);
+}
+
+
 const drawStart=()=>ctx.drawImage(startImg,0,0,canvas.width,canvas.height);
+
+function drawMenu(){
+  drawStart();
+  // semi-transparent dark overlay at bottom for menu
+  const W=canvas.width, H=canvas.height;
+  const boxW = Math.floor(W*0.62), lineH=42, pad=18;
+  const boxH = pad*2 + lineH*menuItems.length;
+  const boxX = Math.floor((W-boxW)/2);
+  const boxY = H - UI_BOTTOM_MARGIN - boxH;
+
+  ctx.save();
+  ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(boxX, boxY, boxW, boxH);
+  ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.strokeRect(boxX+0.5, boxY+0.5, boxW-1, boxH-1);
+
+  ctx.font='28px monospace'; ctx.textAlign='left'; ctx.textBaseline='middle';
+  for(let i=0;i<menuItems.length;i++){
+    const y = boxY + pad + lineH*(i+0.5);
+    const txt = menuItems[i];
+    if(i===menuIdx){
+      // selection highlight
+      ctx.fillStyle='rgba(255,255,255,0.10)'; ctx.fillRect(boxX+6, y-lineH/2+3, boxW-12, lineH-6);
+      ctx.fillStyle='#fff';
+      ctx.fillText('▶ ' + txt, boxX + 16, y);
+    }else{
+      ctx.fillStyle='#ddd';
+      ctx.fillText(txt, boxX + 36, y);
+    }
+  }
+  ctx.restore();
+
+  // hint
+  ctx.save();
+  ctx.font='18px monospace'; ctx.fillStyle='#fff'; ctx.textAlign='center';
+  ctx.fillText('↑/↓ выбрать • Enter — подтвердить', W/2, boxY+boxH+28);
+  ctx.restore();
+}
+
+function drawSettings(){
+  drawStart();
+  const W=canvas.width, H=canvas.height;
+  const boxW = Math.floor(W*0.70), pad=18;
+  const lineH=46;
+  const boxH = pad*2 + lineH*2 + 10;
+  const boxX = Math.floor((W-boxW)/2);
+  const boxY = H - UI_BOTTOM_MARGIN - boxH;
+
+  ctx.save();
+  ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(boxX, boxY, boxW, boxH);
+  ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.strokeRect(boxX+0.5, boxY+0.5, boxW-1, boxH-1);
+  ctx.font='26px monospace'; ctx.textAlign='left'; ctx.textBaseline='middle';
+
+  const labels = ['Музыка','SFX'];
+  const values  = [musicMaster, sfxMaster];
+  for(let i=0;i<labels.length;i++){
+    const y = boxY + pad + lineH*(i+0.5);
+    // label
+    ctx.fillStyle = (i===settingsIdx)?'#fff':'#ddd';
+    ctx.fillText(labels[i], boxX + 18, y);
+
+    // bar
+    const barW = Math.floor(boxW*0.40), barH=12;
+    const barX = boxX + boxW - barW - 24;
+    const barY = y - barH/2;
+    ctx.fillStyle='rgba(255,255,255,0.15)'; ctx.fillRect(barX, barY, barW, barH);
+    ctx.fillStyle='#8df'; ctx.fillRect(barX, barY, Math.floor(barW*values[i]), barH);
+    ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.strokeRect(barX+0.5, barY+0.5, barW-1, barH-1);
+    // value text
+    ctx.fillStyle='#fff';
+    ctx.font='20px monospace';
+    ctx.textAlign='right';
+    ctx.fillText(Math.round(values[i]*100)+'%', barX-10, y);
+    ctx.textAlign='left'; ctx.font='26px monospace';
+  }
+
+  ctx.font='18px monospace'; ctx.textAlign='center'; ctx.fillStyle='#fff';
+  ctx.fillText('←/→ изменить • ESC — назад', W/2, boxY+boxH+28);
+  ctx.restore();
+}
+
+function drawGallery(){
+  drawStart();
+  const W=canvas.width, H=canvas.height;
+  // frame
+  ctx.save();
+  const paneW = Math.floor(W*0.82), paneH = Math.floor(H*0.72);
+  const paneX = Math.floor((W-paneW)/2), paneY = Math.floor(H*0.12);
+  ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(paneX, paneY, paneW, paneH);
+  ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.strokeRect(paneX+0.5, paneY+0.5, paneW-1, paneH-1);
+
+  const img = galleryImgs[galleryIdx];
+  if(readyAny(galleryImgs) && ready(img)){
+    // fit with aspect preserve into pane
+    const scale = Math.min(paneW/img.width, paneH/img.height);
+    const dw = Math.floor(img.width*scale), dh=Math.floor(img.height*scale);
+    const dx = Math.floor(paneX + (paneW-dw)/2), dy=Math.floor(paneY + (paneH-dh)/2);
+    ctx.drawImage(img, dx, dy, dw, dh);
+  }else{
+    ctx.fillStyle='#fff'; ctx.font='20px monospace'; ctx.textAlign='center';
+    ctx.fillText('Нет изображений (Image01..05.png)', W/2, paneY+paneH/2);
+  }
+
+  // nav hints
+  ctx.font='18px monospace'; ctx.fillStyle='#fff'; ctx.textAlign='center';
+  ctx.fillText('←/→ листать • ESC — назад', W/2, paneY+paneH+28);
+  ctx.restore();
+}
+
+function drawCreators(){
+  drawStart();
+  const W=canvas.width, H=canvas.height;
+  const boxW = Math.floor(W*0.74), pad=24;
+  // removed duplicate boxX/boxY; anchored below
+  const lines = [
+    'Создатели',
+    ' ',
+    'Идея и вдохновение: Katarina',
+    'Код, арт и магия пикселей: Miriel (ChatGPT)',
+    'Музыка: Road.mp3, boss-fight.mp3 и др.',
+    ' ',
+    'ESC — назад'
+  ];
+  const boxH = pad*2 + lines.length*34;
+  const boxX = Math.floor((W-boxW)/2);
+  const boxY = H - UI_BOTTOM_MARGIN - boxH;
+
+  ctx.save();
+  ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(boxX, boxY, boxW, boxH);
+  ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.strokeRect(boxX+0.5, boxY+0.5, boxW-1, boxH-1);
+  ctx.font='24px monospace'; ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#fff';
+
+  let y = boxY + pad;
+  lines.forEach((t,i)=>{ ctx.fillText(t, W/2, y); y+=34; });
+  ctx.restore();
+}
+
 function drawContinueHint() {
-  const MARGIN = 15;              // отступ от краёв
-  const RECT_W = 300, RECT_H = 40;
+  const MARGIN = 40;              // отступ от краёв
+  const RECT_W = 220, RECT_H = 30;
 
   const x = canvas.width  - RECT_W - MARGIN;
   const y = canvas.height - RECT_H - MARGIN;
@@ -677,43 +1366,223 @@ function drawContinueHint() {
 }
 
 
+// === VN-style bottom textbox ===
+const VN = {
+  boxHeightRatio: 0.21,
+  padding: 24,
+  lineHeight: 30,
+  font: '22px monospace',      // TODO: swap to pixel font later
+  textColor: '#ffffff',
+  boxColor: 'rgba(0,0,0,0.72)'
+};
+
+// Pages (0-based) -> array of slides -> array of lines
+
+const storyTextRU = {
+  0: [ // 001
+    ["Вернувшись домой, Мириэль не увидела Катарину возле дома.",
+     "Пройдя в дом, она услышала только тишину."]
+  ],
+  1: [ // 002
+    ["Заглянув на кухню, она увидела горящий огонь на плите, разбитую посуду.",
+     "Катарины не было."]
+  ],
+  2: [ // 003
+    ["Поднявшись наверх, Мириэль заглянула в спальню."],
+    ["На кровати была записка."]
+  ],
+  3: [ // 004
+    ["Сердце эльфийки сжалось."]
+  ],
+  4: [ // 005
+    ["Мириэль нахмурилась. Она узнала эту эмблему.",
+     "Чёрная Элитра. Клан фанатиков и убийц."]
+  ],
+  5: [ // 006
+    ["Она бросилась вниз, схватила оставленный у двери лук",
+     "и устремилась в лес. Спасать Катарину."]
+  ],
+  6: [ // 007
+    ["К вечеру она добралась до ущелья, за которым лежал лес."],
+    ["Едва она ступила несколько шагов,",
+     "как из мрака и тумана ущелья к ней потянулись бледные силуэты — мертвецы.",
+     "Скелеты."]
+  ],
+  7: [ // 008
+    ["Мириэль приблизилась к поляне.", "Навстречу ей устремились жуки."],
+    ["Отвратительные, огромные,", "щелкающие челюстями.", "Вдали виднелся их предводитель."],
+    ["Мириэль выхватила стрелу", "и натянула тетиву.", "«Вы все умрёте», — прошептала она."]
+  ],
+  8: [ // 009
+    ["Преодолев кишащее скелетами ущелье, Мириэль добралась до нужного места в лесу."],
+    ["На поляне она увидела костёр и сидящих вокруг него людей."],
+    ["Бандиты, маги, разбойники — и даже рыцарь в тяжёлых доспехах."]
+  ],
+  9: [ // 010
+    ["Когда эльфийка показалась в поле зрения, раздался низкий женский голос."],
+    ["На поляне появилась магичка в чёрной мантии с закрытым лицом."],
+    ["«Где моя подруга?» — гневно спросила Мириэль."],
+    ["В ответ магичка только злобно рассмеялась."]
+  ],
+  10: [ // 011
+    ["«Не всё так просто, дорогая», — язвительно усмехнулась магичка."],
+    ["«Вижу, ты справилась с моими слугами в ущелье»."],
+    ["«Некромантия — это чёрная магия, и ты за это поплатишься!» — ответила Мириэль, доставая стрелу."],
+    ["«Взять её, мальчики!» — скомандовала некромантка, и её слуги бросились к Мириэль."]
+  ],
+  11: [ // 012
+    ["Некроманша лежала на траве ничком."],
+    ["Мириэль подошла и перевернула её."],
+    ["«Отвечай, где моя Катарина? Зачем вы её похитили?»"],
+    ["Некромантка прохрипела тихим голосом: «Уже поздно»."],
+    ["«Твоя подруга будет принесена в жертву нашему богу Элитре»."],
+    ["Умирающая некромантка указала пальцем в сторону тропы и испустила дух."]
+  ],
+  12: [ // 013
+    ["Мириэль бросилась по тропинке в лес, но дорогу ей преградили огромные жуки."],
+    ["Щёлкая челюстями, они ринулись в атаку на эльфийку."],
+    ["Вдали виднелся огромный уродливый жук-монстр."]
+  ]
+};
+
+
+// typing state
+let storySlide = 0;
+let prevStoryIdx = -1;
+let typePos = 0;
+let typeT0 = performance.now();
+let storyClickGuardUntil = 0; // debounce to avoid skipping multiple pages on one click
+const TYPE_SPEED = 28; // chars per second
+// typing state for END slides (используем те же параметры, что и у story)
+let endTypePos = 0, endTypeT0 = performance.now(), prevEndIdx = -1;
+function resetEndTyping(){ endTypePos = 0; endTypeT0 = performance.now(); }
+
+
+function resetTyping(){ typePos=0; typeT0=performance.now(); }
+function storyCurrentLines(idx){
+  const slides = storyTextRU[idx] || [];
+  return slides[Math.max(0, Math.min(storySlide, slides.length-1))] || [];
+}
+
+function wrapTextToWidth(text, maxW){
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines=[];
+  let cur='';
+  for(let i=0;i<words.length;i++){
+    const word = words[i];
+    const test = cur ? cur + ' ' + word : word;
+    if(ctx.measureText(test).width <= maxW){ cur = test; }
+    else{
+      if(cur) lines.push(cur);
+      // very long single word fallback
+      if(ctx.measureText(word).width > maxW){
+        let chunk='';
+        for(let j=0;j<word.length;j++){
+          const t = chunk + word[j];
+          if(ctx.measureText(t).width <= maxW) chunk = t;
+          else { lines.push(chunk); chunk = word[j]; }
+        }
+        cur = chunk;
+      }else{
+        cur = word;
+      }
+    }
+  }
+  if(cur) lines.push(cur);
+  return lines;
+}
+
+function drawVNBox(idx){
+  // reset when page changes
+  if(prevStoryIdx!==idx){ storySlide=0; resetTyping(); prevStoryIdx=idx; }
+
+  const linesFull = storyCurrentLines(idx);
+  const flat = (linesFull||[]).join(' ');
+
+  // typing advance
+  const now = performance.now(); const dt=(now-typeT0)/1000;
+  typePos = Math.min(flat.length, typePos + dt*TYPE_SPEED);
+  typeT0 = now;
+
+  // panel
+  const H = Math.floor(canvas.height*VN.boxHeightRatio);
+  const Y = canvas.height - H;
+  ctx.save();
+  ctx.fillStyle = VN.boxColor; ctx.fillRect(0,Y,canvas.width,H);
+
+  // text (auto wrap)
+  ctx.fillStyle = VN.textColor; ctx.font = VN.font;
+  ctx.textAlign='left'; ctx.textBaseline='top';
+  const shown = flat.substring(0, Math.floor(typePos));
+  const maxW = canvas.width - VN.padding*2;
+  const toDraw = wrapTextToWidth(shown, maxW);
+
+  let x=VN.padding, y=Y+VN.padding;
+  for(let i=0;i<toDraw.length;i++){ ctx.fillText(toDraw[i], x, y); y += VN.lineHeight; }
+
+  // continue hint only when fully printed
+  const done = (Math.floor(typePos) >= flat.length) && flat.length>0;
+  ctx.restore();
+  if(done && !transitioning) drawContinueHint();
+}
+
+// story range control// story range control (show 0..storyMax then start Level 1)
+let storyMax = 7; // show pages 001..007 initially
+let pendingStoryResume = -1;
 function drawStory(){
   const cur = (idx>=0 && idx<storyImg.length) ? storyImg[idx] : null;
   if(cur && cur.complete && cur.naturalWidth>0){
     ctx.drawImage(cur,0,0,canvas.width,canvas.height);
+    // water shimmer overlays on page 001
+    if(idx===0 && typeof waterImgs!=='undefined' && waterImgs[0] && waterImgs[1] && waterImgs[0].complete && waterImgs[1].complete){
+      const t=performance.now()/1000, a=0.5+0.5*Math.sin(t*4.8);
+      ctx.save(); ctx.imageSmoothingEnabled=false;
+      ctx.globalAlpha=a;   ctx.drawImage(waterImgs[0],0,0,canvas.width,canvas.height);
+      ctx.globalAlpha=1-a; ctx.drawImage(waterImgs[1],0,0,canvas.width,canvas.height);
+      ctx.globalAlpha=1; ctx.restore();
+    }
+    // 🔥 fire flicker overlays on page 002
+    if(idx===1 && typeof fireImgs!=='undefined' && fireImgs[0] && fireImgs[1] && fireImgs[0].complete && fireImgs[1].complete){
+      const t = performance.now()/1000;
+      // смесь двух синусов для «живого» мерцания
+      let s = 0.6*Math.sin(t*9.5) + 0.4*Math.sin((t+0.37)*6.3);
+      let a = 0.5 + 0.5*s;
+      // мягкие пределы, чтобы не «выбивало» в полную заливку
+      a = Math.max(0.15, Math.min(0.85, a));
+      ctx.save(); ctx.imageSmoothingEnabled=false;
+      ctx.globalAlpha = a;      ctx.drawImage(fireImgs[0],0,0,canvas.width,canvas.height);
+      ctx.globalAlpha = 1 - a;  ctx.drawImage(fireImgs[1],0,0,canvas.width,canvas.height);
+      ctx.globalAlpha = 1; ctx.restore();
+    }
+
+    // VN box
+    drawVNBox(idx);
   }
   if(!transitioning) drawContinueHint();
 
   if(fadeDir){
+    // Fade overlay
     fadeScr+=fadeDir*0.05;
     ctx.fillStyle=`rgba(0,0,0,${fadeScr})`; ctx.fillRect(0,0,canvas.width,canvas.height);
-    if(fadeScr>=1){fadeDir=-1;fadeScr=1;idx++;
-      if(idx>=storyImg.length && !transitioning){ startTransition('Bone Gorge','game2'); }
-    }else if(fadeScr<=0){fadeDir=0;fadeScr=0;}
-  }
-}
+    if(fadeScr>=1){
+      fadeDir=-1; fadeScr=1;
+      const nextIdx = idx+1;
+      if(nextIdx>=storyMax && !transitioning){
+        if(storyMax===7){ startTransition('Level 1: Skeleton Gorge','game2'); }
+        else if(storyMax===11){ startTransition('Level 2: Bandit Lair','bandits'); }
+        else if(storyMax===13){ startTransition('Level 3: Bug Hive','game'); }
+      }else{ idx = nextIdx; }
+    }else if(fadeScr<=0){ fadeDir=0; fadeScr=0; }
 
+}
+}
 function drawGame2(){
   // background
   drawScrollingBG(bgBone, scrollBoneY);
 
   // elf
     drawElfShadow(); drawElfGlow();
-const _now = performance.now();
-const _shot = elf.shootFX.active && _now < elf.shootFX.until;
-if(elf.face==='R'){
-  const img = _shot ? elfR_release : elfR_taut;
-  if(ready(img)) ctx.drawImage(img, elf.x, elf.y, elf.w, elf.h);
-}else{
-  if(_shot){
-    const img = elfR_release;
-    if(ready(img)){ ctx.save(); ctx.translate(elf.x+elf.w,0); ctx.scale(-1,1); ctx.drawImage(img, 0, elf.y, elf.w, elf.h); ctx.restore(); }
-  }else{
-    const img = elfL_taut;
-    if(ready(img)) ctx.drawImage(img, elf.x, elf.y, elf.w, elf.h);
-  }
-}
-if(elf.shootFX.active && _now >= elf.shootFX.until) elf.shootFX.active=false;
+  drawElfAnimated();
   // arrows with glow
   arrows.forEach(a=>{
     if(arrowReady){
@@ -748,9 +1617,9 @@ if(elf.shootFX.active && _now >= elf.shootFX.until) elf.shootFX.active=false;
     if(ready(boneShardImg)){
       ctx.save(); ctx.globalCompositeOperation='lighter';
       ctx.shadowColor='rgba(255,255,220,0.85)'; ctx.shadowBlur=8;
-      ctx.drawImage(boneShardImg, p.x, p.y, 14, 14);
+      ctx.drawImage(boneShardImg, p.x, p.y, p.w, p.h);
       ctx.restore();
-      ctx.drawImage(boneShardImg, p.x, p.y, 14, 14);
+      ctx.drawImage(boneShardImg, p.x, p.y, p.w, p.h);
     }else{ ctx.fillStyle='#ddd'; ctx.fillRect(p.x,p.y,14,14); }
   });
 
@@ -793,68 +1662,51 @@ if(gameOver){
 }
 
 /* ── postBoss: мигание и растворение босса ── */
+
 function drawGame(){
-
-
-// --- Level 2: Skeleton Meadow ---
-
-
-
+  // Bug Hive level render (game/boss phases)
   drawScrollingBG(bgImg, scrollBugY);
 
-  // эльфийка
-    drawElfShadow();
-const _nowg = performance.now();
-const _shotg = elf.shootFX.active && _nowg < elf.shootFX.until;
-if(elf.face==='R'){
-  const img = _shotg ? elfR_release : elfR_taut;
-  if(ready(img)) ctx.drawImage(img, elf.x, elf.y, elf.w, elf.h);
-}else{
-  if(_shotg){
-    const img = elfR_release;
-    if(ready(img)){ ctx.save(); ctx.translate(elf.x+elf.w,0); ctx.scale(-1,1); ctx.drawImage(img, 0, elf.y, elf.w, elf.h); ctx.restore(); }
-  }else{
-    const img = elfL_taut;
-    if(ready(img)) ctx.drawImage(img, elf.x, elf.y, elf.w, elf.h);
-  }
-}
-if(elf.shootFX.active && _nowg >= elf.shootFX.until) elf.shootFX.active=false;
-  // стрелы (glow + core)
+  // elf
+  drawElfShadow();
+  drawElfAnimated();
+
+  // arrows
   arrows.forEach(a=>{
     if(arrowReady){
-      ctx.save(); ctx.globalCompositeOperation='lighter';
-      ctx.shadowColor='rgba(255,200,0,0.85)'; ctx.shadowBlur=18;
-      ctx.drawImage(arrowImg,a.x,a.y,a.w,a.h);
-      ctx.restore();
-      ctx.drawImage(arrowImg,a.x,a.y,a.w,a.h);
+      ctx.drawImage(arrowImg, a.x, a.y, a.w, a.h);
     }else{
       ctx.fillStyle='yellow'; ctx.fillRect(a.x,a.y,a.w,a.h);
     }
   });
 
-  // жуки
+  // bugs
   bugs.forEach(b=>{
-    drawShadow(b.x+5, b.y, b.w, b.h, 0.85, 2.00, 13, 0.60, Math.PI/2);
-    ctx.drawImage(bugFr[bugFrame],b.x,b.y,b.w,b.h);
+    drawShadow(b.x, b.y, b.w, b.h, 0.85, 0.22, 9);
+    const fr = bugFr[bugFrame];
+    if(ready(fr)) ctx.drawImage(fr, b.x, b.y, b.w, b.h);
+    else { ctx.fillStyle='#0f0'; ctx.fillRect(b.x,b.y,b.w,b.h); }
   });
 
-  // плевки
-  spits.forEach(s=>ctx.drawImage(poisonImg,s.x,s.y,s.w,s.h));
+  // poison spits
+  spits.forEach(s=>{
+    if(ready(poisonImg)) ctx.drawImage(poisonImg, s.x, s.y, s.w, s.h);
+    else { ctx.fillStyle='#9f0'; ctx.fillRect(s.x, s.y, s.w, s.h); }
+  });
 
-  // босс (в этой фазе)
-  if(boss && phase!=='postBoss'){
-    const img=(boss.hitFlash>0 && boss.hitFlash%4<2)?bossHit:bossIdle;
+  // boss
+  if(phase==='boss' && boss){
+    if(boss.hitFlash>0) boss.hitFlash--; // decay hit flash
+    const img = (boss.hitFlash>0) ? bossHit : bossIdle;
     drawShadow(boss.x, boss.y, boss.w, boss.h, 0.90, 0.22, 10);
-    ctx.drawImage(img,boss.x,boss.y,boss.w,boss.h);
-    if(boss.hitFlash>0) boss.hitFlash--;
-
-    // hp bar + name
-    const barW=180,barH=10,p=bossHp/25;
-    ctx.fillStyle='#333'; ctx.fillRect(boss.x,boss.y-16,barW,barH);
-    ctx.fillStyle='#e22'; ctx.fillRect(boss.x,boss.y-16,barW*p,barH);
-    ctx.strokeStyle='#fff'; ctx.strokeRect(boss.x,boss.y-16,barW,barH);
+    if(ready(img)) ctx.drawImage(img, boss.x, boss.y, boss.w, boss.h);
+    // optional HP bar
+    const barW=220, barH=10, p = Math.max(0, Math.min(1, bossHp/25));
+    ctx.fillStyle='#333'; ctx.fillRect(boss.x, boss.y-16, barW, barH);
+    ctx.fillStyle='#e55'; ctx.fillRect(boss.x, boss.y-16, Math.floor(barW*p), barH);
+    ctx.strokeStyle='#fff'; ctx.strokeRect(boss.x, boss.y-16, barW, barH);
     ctx.fillStyle='#fff'; ctx.font='18px monospace'; ctx.textAlign='center';
-    ctx.fillText(boss.name,boss.x+boss.w/2,boss.y-26);
+    ctx.fillText('Scarlet Widow', boss.x+boss.w/2, boss.y-26);
   }
 
   // HUD
@@ -862,32 +1714,8 @@ if(elf.shootFX.active && _nowg >= elf.shootFX.until) elf.shootFX.active=false;
   ctx.fillStyle='#fff'; ctx.font='24px monospace'; ctx.textAlign='right';
   ctx.fillText('Total: '+totalKills,canvas.width-20,46);
 
-  
-    // Boss meter bar (top-left, above hearts)
-  const BW = 210, BH = 10, BX = 20, BY = 12;// heart broken FX
-  if(heartFx){
-    const now = performance.now();
-    if(now < heartFx.until){
-      ctx.save();
-      ctx.globalAlpha = 0.7 + 0.3*Math.sin(now*0.05);
-      if(heartBroken.ok && ready(heartBroken.img)){
-        ctx.drawImage(heartBroken.img, heartFx.x, heartFx.y, 40, 40);
-      }
-      ctx.restore();
-    } else { heartFx=null; }
-  }
-
-  // sparks
-  if(sparkImg && sparkImg.complete){
-    ctx.save();
-    for(const p of sparks){
-      ctx.globalAlpha = Math.max(0, Math.min(1, p.life/260));
-      ctx.drawImage(sparkImg, p.x, p.y, 16, 16);
-    }
-    ctx.restore();
-  }
-
-if(gameOver){
+  // Game over banner
+  if(gameOver){
     ctx.fillStyle='red'; ctx.font='48px sans-serif'; ctx.textAlign='center';
     ctx.fillText('GAME OVER',canvas.width/2,canvas.height/2);
     ctx.font='22px monospace'; ctx.fillStyle='#fff';
@@ -895,28 +1723,20 @@ if(gameOver){
   }
 }
 
+
+
 /* ── postBoss: мигание и растворение босса ── */
 function drawPostBoss(){
-  ctx.drawImage(bgImg,0,0,canvas.width,canvas.height);
+  drawScrollingBG(bgImg, scrollBugY);
 
-  // замороженные враги
-  bugs.forEach(b=>{ drawShadow(b.x,b.y,b.w,b.h,0.70,0.20,4); ctx.drawImage(bugFr[bugFrame],b.x,b.y,b.w,b.h); });
-  spits.forEach(s=>ctx.drawImage(poisonImg,s.x,s.y,s.w,s.h));
-
-  // эльфийка
-  const ang=(elf.img===elfL?-0.12:0.12);
-  drawShadow(elf.x,elf.y,elf.w,elf.h,0.78,1.52,2,0.72,ang);
-  ctx.drawImage(elf.img,elf.x,elf.y,elf.w,elf.h);
-
-  // HUD
-  for(let i=0;i<lives;i++) ctx.drawImage(heartImg,20+i*50,20,40,40);
-  ctx.fillStyle='#fff'; ctx.font='24px monospace'; ctx.textAlign='right';
-  ctx.fillText('Total: '+totalKills,canvas.width-20,46);
-
-  
-    // Boss meter bar (top-left, above hearts)
-  const BW = 210, BH = 10, BX = 20, BY = 12;// страховки: если что — сразу к встрече
-  if(!end || !boss){ end=null; if(!reunion) startReunion(); return; }
+  // safety: if нет данных — сразу к встрече
+  if(!boss){
+    if(!reunion) startReunion();
+    return;
+  }
+  if(!end){
+    end={mode:'blink', t:performance.now(), blinkEvery:150, blinks:0, maxBlinks:6, bossAlpha:1, bossFadeMs:1000};
+  }
 
   const now=performance.now();
   if(end.mode==='blink'){
@@ -935,11 +1755,10 @@ function drawPostBoss(){
   drawShadow(boss.x,boss.y,boss.w,boss.h,0.90,0.22,10);
   ctx.drawImage(img,boss.x,boss.y,boss.w,boss.h); ctx.restore();
 }
-
 /* ── reunion: встреча и объятия ── */
 function startReunion(){
   phase='reunion';
-  arrows.length=0; bugs.length=0; spits.length=0; sparks.length=0; heartFx=null; skels.length=0; archers.length=0; boneShots.length=0; skelKills=0; lvlFade=0; lvlFadeDir=0;
+  arrows.length=0; bugs.length=0; spits.length=0; sparks.length=0; heartFx=null; skels.length=0; archers.length=0; boneShots.length=0; skelKills=0; lvlFade=0; lvlFadeDir=0; knights.length=0; rogues.length=0; thrownDaggers.length=0; mages.length=0; fireballs.length=0; banditDist=0; scrollBandY=0; necro=null;
   const meetY=Math.floor(canvas.height*0.58);
   reunion={mode:'runToMeet', speed:3.2, meetY, kat:{x:Math.floor(elf.x+elf.w/2-24), y:-64, w:48, h:48}, hugT:0};
 }
@@ -954,8 +1773,8 @@ function drawReunion(){
     drawShadow(reunion.kat.x,reunion.kat.y,reunion.kat.w,reunion.kat.h,0.70,0.20,5);
     if(kat.ok && ready(kat.img)) ctx.drawImage(kat.img,reunion.kat.x,reunion.kat.y,reunion.kat.w,reunion.kat.h);
 
-    drawShadow(elf.x,elf.y,elf.w,elf.h);
-    if(ready(elf.img)) ctx.drawImage(elf.img,elf.x,elf.y,elf.w,elf.h);
+    drawElfShadow();
+      drawElfAnimated();
 
     if(elf.y<=reunion.meetY && reunion.kat.y>=reunion.meetY-48){ reunion.mode='hug'; reunion.hugT=performance.now(); }
 
@@ -967,8 +1786,8 @@ function drawReunion(){
     else{
       drawShadow(reunion.kat.x,reunion.kat.y,reunion.kat.w,reunion.kat.h,0.70,0.20,5);
       if(kat.ok && ready(kat.img)) ctx.drawImage(kat.img,reunion.kat.x,reunion.kat.y,reunion.kat.w,reunion.kat.h);
-      drawShadow(elf.x,elf.y,elf.w,elf.h);
-      if(ready(elf.img)) ctx.drawImage(elf.img,elf.x,elf.y,elf.w,elf.h);
+      drawElfShadow();
+      drawElfAnimated();
     }
 
     // ждём минимум 1.2s, но не дольше 3s
@@ -984,16 +1803,58 @@ function drawReunion(){
     else{
       drawShadow(reunion.kat.x,reunion.kat.y,reunion.kat.w,reunion.kat.h,0.70,0.20,5);
       if(kat.ok && ready(kat.img)) ctx.drawImage(kat.img,reunion.kat.x,reunion.kat.y,reunion.kat.w,reunion.kat.h);
-      drawShadow(elf.x,elf.y,elf.w,elf.h);
-      if(ready(elf.img)) ctx.drawImage(elf.img,elf.x,elf.y,elf.w,elf.h);
+      drawElfShadow();
+      drawElfAnimated();
     }
     endFade=Math.min(1,endFade+0.04);
     ctx.fillStyle=`rgba(0,0,0,${endFade})`; ctx.fillRect(0,0,canvas.width,canvas.height);
-    if(endFade>=1){ phase='endSlides'; endIdx=0; endFade=1; endFadeDir=-1; }
+    if(endFade>=1){
+      phase='endSlides'; endIdx=0; endFade=1; endFadeDir=-1;
+      prevEndIdx=-1; resetEndTyping();
+    }
   }
 }
 
 /* ── финальные слайды ── */
+
+// --- End pages text box ---
+const endTextRU = {
+  0: ["Утыканный стрелами, чудовищный монстр", "рухнул замертво на траву.", "Остальные разбежались."],
+  1: ["Эльфийка оглянулась и увидела", "бежащую к ней Катарину.", "Она сияла от радости."],
+  2: ["Мириэль бросилась ей навстречу", "и заключила её в свои объятия.", "«Пойдём домой», — сказала эльфийка,", "и поцеловала её."]
+};
+function drawEndBox(i){
+  // печатаем построчно под теми же параметрами VN
+  if(prevEndIdx !== i){ prevEndIdx = i; resetEndTyping(); }
+  const lines = endTextRU[i] || [];
+  const flat  = lines.join(' ');
+
+  // наращиваем видимую длину
+  const now = performance.now(), dt = (now - endTypeT0)/1000;
+  endTypePos = Math.min(flat.length, endTypePos + dt*TYPE_SPEED);
+  endTypeT0 = now;
+
+  // панель
+  const H = Math.floor(canvas.height*VN.boxHeightRatio);
+  const Y = canvas.height - H;
+  ctx.save();
+  ctx.fillStyle = VN.boxColor; ctx.fillRect(0,Y,canvas.width,H);
+
+  ctx.fillStyle = VN.textColor; ctx.font = VN.font;
+  ctx.textAlign='left'; ctx.textBaseline='top';
+
+  const shown = flat.substring(0, Math.floor(endTypePos));
+  const maxW  = canvas.width - VN.padding*2;
+  const toDraw = wrapTextToWidth(shown, maxW);
+
+  let x=VN.padding, y=Y+VN.padding;
+  for(let k=0;k<toDraw.length;k++){ ctx.fillText(toDraw[k], x, y); y+=VN.lineHeight; }
+  ctx.restore();
+
+  // «Click to continue» — только когда допечатали
+  const done = (Math.floor(endTypePos) >= flat.length) && flat.length>0;
+  if(done && !transitioning) drawContinueHint();
+}
 function drawEndSlides(){
   ctx.fillStyle='#000'; ctx.fillRect(0,0,canvas.width,canvas.height);
   const img=endImg[endIdx];
@@ -1003,7 +1864,8 @@ function drawEndSlides(){
     const dx=Math.floor((canvas.width-dw)/2), dy=Math.floor((canvas.height-dh)/2);
     ctx.drawImage(img,dx,dy,dw,dh);
   }
-drawContinueHint();
+  // печатающийся бокс
+  drawEndBox(endIdx);
 
   if(endFadeDir!==0){
     endFade+=endFadeDir*0.05; endFade=Math.max(0,Math.min(1,endFade));
@@ -1030,13 +1892,19 @@ function drawCredits(){
 /* ── main loop ── */
 (function loop(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  if(phase==='menu') drawStart();
+  if(phase==='menu') drawMenu();
   else if(phase==='story') drawStory();
   else if(phase==='game2'){ update(); drawGame2(); }
+  else if(phase==='bandits'){ updateBandits(); drawBandits(); }
+  else if(phase==='necroBoss'){ updateBandits(); drawBandits(); }
+  else if(phase==='banditPostBoss'){ drawBanditPostBoss(); }
   else if(phase==='game'||phase==='boss'){ update(); drawGame(); }
   else if(phase==='postBoss'){ drawPostBoss(); }
   else if(phase==='reunion'){ drawReunion(); }
   else if(phase==='endSlides'){ drawEndSlides(); }
+  else if(phase==='settings'){ drawSettings(); }
+  else if(phase==='gallery'){ drawGallery(); }
+  else if(phase==='creators'){ drawCreators(); }
   else if(phase==='credits'){ drawCredits(); }
   updateTransition();
   drawTransitionOverlay();
@@ -1051,9 +1919,18 @@ function resetGame(){
 
   fade(musGame,0); fade(musBoss,0); fade(musStory,0); fade(musVictory,0); fade(musMenu,.6);
   phase='menu'; audioUnlocked=true; ignoreNextClick=false;
-  idx=0; fadeScr=0; fadeDir=0; keys={}; lives=3; score=0; gameOver=false; lastShot=0; bugCnt=0; bossProg=0;
-  elf.x=336; elf.y=920-48-40; elf.img=elfR;
-  arrows.length=0; bugs.length=0; spits.length=0; sparks.length=0; heartFx=null; skels.length=0; archers.length=0; boneShots.length=0; skelKills=0; lvlFade=0; lvlFadeDir=0;
+  idx=0; fadeScr=0; fadeDir=0; keys={}; lives=5; score=0; gameOver=false; lastShot=0; bugCnt=0; bossProg=0;
+  // reset story flow so a new run always starts from page 001 -> Skeletons
+  storyMax = 7;
+  pendingStoryResume = -1;
+  idx = 0;
+  // reset VN typing state
+  storySlide = 0;
+  prevStoryIdx = -1;
+  resetTyping();
+
+  elf.x=Math.floor(canvas.width/2 - elf.w/2); elf.y=canvas.height - elf.h - 30; elf.img=elfR;
+  arrows.length=0; bugs.length=0; spits.length=0; sparks.length=0; heartFx=null; skels.length=0; archers.length=0; boneShots.length=0; skelKills=0; lvlFade=0; lvlFadeDir=0; knights.length=0; rogues.length=0; thrownDaggers.length=0; mages.length=0; fireballs.length=0; banditDist=0; scrollBandY=0; necro=null;
   boss=null; bossHp=25; bossAppearing=true;
   bugDist=0; totalKills=0;
   end=null; reunion=null; endIdx=0; endFade=0; endFadeDir=0;
@@ -1071,4 +1948,3 @@ setTimeout(()=>{
 </script>
 </body>
 </html>
-  ctx.fillText('Path: '+Math.min(100, Math.floor(boneDist*100/boneDistGoal))+'%', 20, 110);

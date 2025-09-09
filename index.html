@@ -272,14 +272,22 @@ const sShotB=new Audio('bow_fire.wav'); sShotB.volume=.55;
 const sHitB =new Audio('bow_hit.wav');  sHitB.volume=.9;
 const playShot=()=>sShotB.cloneNode().play().catch(()=>{});
 const playHit =()=>sHitB.cloneNode().play().catch(()=>{});
+// --- extra SFX ---
+const sBone = new Audio('bone_crunch.wav'); sBone.volume = .9;
+const sIron = new Audio('iron-hit.wav');   sIron.volume = .9;
+const playBone = ()=>{ try{ sBone.cloneNode().play().catch(()=>{}); }catch(_e){} };
+const playIron = ()=>{ try{ sIron.cloneNode().play().catch(()=>{}); }catch(_e){} };
+
 
 function applySFXMaster(){
-  const base = [
-    sUghWAV, sUghMP3, sGameOver, sShotB, sHitB
-  ];
-  const baseVol = new Map([[sUghWAV,0.6],[sUghMP3,0.6],[sGameOver,0.8],[sShotB,0.55],[sHitB,0.9]]);
+  const base = [sUghWAV, sUghMP3, sGameOver, sShotB, sHitB, sBone, sIron];
+  const baseVol = new Map([
+    [sUghWAV,0.6],[sUghMP3,0.6],[sGameOver,0.8],[sShotB,0.55],[sHitB,0.9],
+    [sBone,0.9],[sIron,0.9]
+  ]);
   base.forEach(a=>{ try{ a.volume = Math.max(0, Math.min(1, (baseVol.get(a)||a.volume) * sfxMaster)); }catch(_e){} });
 }
+
 
 applySFXMaster();
 
@@ -398,11 +406,25 @@ function updateTransition(){
         elf.y = Math.floor(canvas.height - elf.h - 30);
         arrows.length=0;
       }else if(tr.next==='game2'){
+  arrows.length=0; // wipe arrows on entering skeleton level
+
         // Enter Skeleton level
         try{ bugs.length=0; spits.length=0; }catch(_){}
         scrollBoneY=0; boneDist=0; boneDone=false;
       }
       if(tr.next==='story' && pendingStoryResume>=0){ idx=pendingStoryResume; pendingStoryResume=-1; fadeDir=0; fadeScr=0; }
+      // universal: wipe all projectiles so they don't carry into the next scene
+
+      try{ arrows.length=0; }catch(_){}
+
+      try{ boneShots && (boneShots.length=0); }catch(_){}
+
+      try{ fireballs && (fireballs.length=0); }catch(_){}
+
+      try{ thrownDaggers && (thrownDaggers.length=0); }catch(_){}
+
+      try{ spits && (spits.length=0); }catch(_){}
+
       phase = tr.next;
       tr.stage=2; tr.t0=now; tr.alpha=1; tr.tAlpha=0;
     }
@@ -574,7 +596,7 @@ canvas.addEventListener('click',()=>{
       const now = performance.now();
       if(now < storyClickGuardUntil) return;
       const linesFull = storyCurrentLines(idx);
-      const flat = (linesFull||[]).join('\n');
+      const flat = (linesFull||[]).join('');
       if(Math.floor(typePos) < flat.length){ typePos = flat.length; storyClickGuardUntil = now + 120; }
       else {
         const slides = storyTextRU[idx] || [];
@@ -698,7 +720,7 @@ if(phase==='game2' && !transitioning){
       s.y += s.dy;
       s.x += Math.sin(now*0.003 + s.seed)*0.4;
 
-      // shield toggle
+      if(s.x<130)s.x=130; if(s.x+s.w>canvas.width-130)s.x=canvas.width-130-s.w; // shield toggle
       if(s.kind==='shield'){
         s.shieldT += 16;
         const cycle = 1200; // ms
@@ -753,9 +775,9 @@ if(phase==='game2' && !transitioning){
           if(s.kind==='shield' && s.shieldUp){
             // block this arrow (no hp loss)
             arrows.splice(ai,1); spawnSparks(a.x,a.y,4);
-          }else{
+           playIron(); }else{
             s.hp--; arrows.splice(ai,1); spawnSparks(s.x+s.w/2,s.y+s.h/2,7);
-            if(s.hp<=0){ skels.splice(si,1); skelKills++; totalKills++; }
+            playBone(); if(s.hp<=0){ skels.splice(si,1); skelKills++; totalKills++; }
           }
           break;
         }
@@ -768,7 +790,7 @@ if(phase==='game2' && !transitioning){
         const r=archers[ii], a=arrows[ai];
         if(hit(a,r)){
           r.hp--; arrows.splice(ai,1); spawnSparks(r.x+r.w/2,r.y+r.h/2,7);
-          if(r.hp<=0){ archers.splice(ii,1); skelKills++; totalKills++; }
+          playBone(); if(r.hp<=0){ archers.splice(ii,1); skelKills++; totalKills++; }
           break;
         }
       }
@@ -884,7 +906,7 @@ setInterval(()=>{
   // spawn walkers / shields with small randomness
   if(walkers+shields < 5){
     const kind = Math.random()<0.6 ? 'walker' : 'shield';
-    const x = Math.floor(80 + Math.random()*(canvas.width-160));
+    const x = Math.floor(130 + Math.random()*(canvas.width-260 - s(48)));
     const dy = kind==='walker' ? (1.20+Math.random()*0.50) : (1.00+Math.random()*0.40);
     skels.push({
       kind, x, y:-64, w:s(48), h:s(64), dy, hp:(kind==='shield'?3:2),
@@ -896,12 +918,12 @@ setInterval(()=>{
   // spawn archers up to 2
   if(archCnt < 1){
     // only spawn if fewer than 2 total archers exist
-    const ax = Math.floor(100 + Math.random()*(canvas.width-200));
+    const ax = Math.floor(130 + Math.random()*(canvas.width-260 - s(48)));
     const ay = Math.floor(40 + Math.random()*100);
     archers.push({
       x:ax, y:ay, w:s(48), h:s(64), hp:2,
       vx: (Math.random()<0.5?1:-1)*0.35, vy: (Math.random()<0.5?1:-1)*0.25,
-      minX:40, maxX:canvas.width-88, minY:20, maxY:200,
+      minX:130, maxX:canvas.width - 130 - s(48), minY:20, maxY:200,
       lastShot:0, shootCD: 2200 + Math.random()*1200,
       frame:0
     });
@@ -1034,6 +1056,18 @@ function updateBandits(){
     if(hit(f,elf)){ fireballs.splice(i,1); lose(); }
   }
 
+  
+  // SFX pre-pass: metal hit on knight when arrow connects
+  try{
+    for(let ai=arrows.length-1; ai>=0; ai--){
+      const a = arrows[ai];
+      for(let i=knights.length-1; i>=0; i--){
+        const k = knights[i];
+        if(hit(a,k)){ playIron(); break; }
+      }
+    }
+  }catch(_e){}
+
   // arrows vs enemies
   for(let ai=arrows.length-1; ai>=0; ai--){
     const a=arrows[ai]; let hitAny=false;
@@ -1073,7 +1107,7 @@ function drawBandits(){
 
   // rogues
   rogues.forEach(r=>{
-    drawShadow(r.x, r.y, r.w, r.h, 0.95, 0.22, 9);
+    drawShadow(r.x, r.y, r.w, r.h, 0.95, 0.22, 4);
     const fr = (r.castFlash>0) ? rogueFr[1] : rogueFr[0];
     if(ready(fr)) ctx.drawImage(fr, r.x, r.y, r.w, r.h);
   });
@@ -1083,7 +1117,7 @@ function drawBandits(){
 
   // mages
   mages.forEach(m=>{
-    drawShadow(m.x, m.y, m.w, m.h, 0.95, 0.22, 9);
+    drawShadow(m.x, m.y, m.w, m.h, 1.20, 0.22, 4);
     const fr = (m.castFlash>0) ? mageFr[1] : mageFr[0];
     if(ready(fr)) ctx.drawImage(fr, m.x, m.y, m.w, m.h);
     if(m.castFlash>0) m.castFlash-=16;
@@ -1133,14 +1167,16 @@ setInterval(()=>{
 
   // Mage: ensure 1
   if(mages.length<1){
-    const ax = Math.floor(100 + Math.random()*(canvas.width-200));
+    const ax = Math.floor(130 + Math.random()*(canvas.width-260 - s(48)));
     const ay = Math.floor(40 + Math.random()*100);
-    mages.push({ x:ax, y:ay, w:s(48), h:s(64), hp:2, vx:(Math.random()<0.5?1:-1)*0.35, vy:(Math.random()<0.5?1:-1)*0.25, minX:40, maxX:canvas.width-88, minY:20, maxY:200, lastShot:0, shootCD: 1500 + Math.random()*1200, castFlash:0 });
+    mages.push({ x:ax, y:ay, w:s(48), h:s(64), hp:2, vx:(Math.random()<0.5?1:-1)*0.35, vy:(Math.random()<0.5?1:-1)*0.25, minX:130, maxX:canvas.width - 130 - s(48), minY:20, maxY:200, lastShot:0, shootCD: 1500 + Math.random()*1200, castFlash:0 });
   }
 }, 1400);
 
 // Necromancer boss
-function startNecro(){ phase='necroBoss'; fade(musGame,0); fade(musBoss,.65); necro={x:canvas.width/2 - s(144)/2, y:-s(140/1.4), w:s(144), h:s(144), hurt:0, dir:'left', frame:0, animT:0}; necroHp=25; necroAppearing=true; necroCastT=0; }
+function startNecro(){
+  try{ arrows.length=0; thrownDaggers && (thrownDaggers.length=0); fireballs && (fireballs.length=0); }catch(_){}
+ phase='necroBoss'; fade(musGame,0); fade(musBoss,.65); necro={x:canvas.width/2 - s(144)/2, y:-s(140/1.4), w:s(144), h:s(144), hurt:0, dir:'left', frame:0, animT:0}; necroHp=25; necroAppearing=true; necroCastT=0; }
 
 function drawNecro(){
   if(!necro) return;
@@ -1432,11 +1468,6 @@ const storyTextRU = {
     ["Едва она ступила несколько шагов,",
      "как из мрака и тумана ущелья к ней потянулись бледные силуэты — мертвецы.",
      "Скелеты."]
-  ],
-  7: [ // 008
-    ["Мириэль приблизилась к поляне.", "Навстречу ей устремились жуки."],
-    ["Отвратительные, огромные,", "щелкающие челюстями.", "Вдали виднелся их предводитель."],
-    ["Мириэль выхватила стрелу", "и натянула тетиву.", "«Вы все умрёте», — прошептала она."]
   ],
   8: [ // 009
     ["Преодолев кишащее скелетами ущелье, Мириэль добралась до нужного места в лесу."],

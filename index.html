@@ -116,6 +116,10 @@ const bgBone = I('bg_bone_meadow.png');
 const skelWalk = [I('skel_walk_0.png'), I('skel_walk_1.png')];
 const skelShield = [I('skel_shield_0.png'), I('skel_shield_1.png')];
 const skelArcher = [I('skel_archer_0.png'), I('skel_archer_1.png')];
+const skelWalkDead   = I('skel_walk_2.png');
+const skelShieldDead = I('skel_shield_2.png');
+const skelArcherDead = I('skel_archer_2.png');
+
 
 // Necromancer boss sprites
 const necroIdle = [ I('mageboss_00.png'), I('mageboss_01.png'), I('mageboss_02.png'), I('mageboss_03.png') ];
@@ -717,6 +721,8 @@ if(phase==='game2' && !transitioning){
     // skels move
     for(let i=skels.length-1;i>=0;i--){
       const s=skels[i];
+      if(s.dead){ if(now >= (s.deadUntil||0)){ skels.splice(i,1); } continue; }
+
       s.y += s.dy;
       s.x += Math.sin(now*0.003 + s.seed)*0.4;
 
@@ -737,22 +743,27 @@ if(phase==='game2' && !transitioning){
     // archers patrol
     for(let i=archers.length-1;i>=0;i--){
       const a=archers[i];
+      if(a.dead){ if(now >= (a.deadUntil||0)){ archers.splice(i,1); } continue; }
+
       a.x += a.vx; a.y += a.vy;
       if(a.x<a.minX){a.x=a.minX; a.vx=Math.abs(a.vx);}
       if(a.x>a.maxX){a.x=a.maxX; a.vx=-Math.abs(a.vx);}
       if(a.y<a.minY){a.y=a.minY; a.vy=Math.abs(a.vy);}
       if(a.y>a.maxY){a.y=a.maxY; a.vy=-Math.abs(a.vy);}
 
-      // shoot toward elf
+      
+      if(a.shotFlash>0) a.shotFlash -= 16;
+// shoot toward elf
       if(now - a.lastShot > a.shootCD){
         a.lastShot = now; a.shootCD = 2200 + Math.random()*1200;
+        a.shotFlash = 220;
         // vector to elf center
         const ex = elf.x+elf.w/2, ey = elf.y+elf.h/2;
         let dx = ex - (a.x + a.w/2), dy = ey - (a.y + a.h/2);
         const len = Math.max(1, Math.hypot(dx,dy));
         const spd = 3; dx = dx/len*spd; dy = dy/len*spd;
         boneShots.push({x:a.x+a.w/2 - s(7), y:a.y+a.h/2 - s(7), w:s(14), h:s(14), dx, dy});
-      }
+    }
 
       // dead?
       if(a.hp<=0){ archers.splice(i,1); skelKills++; spawnSparks(a.x+a.w/2,a.y+a.h/2,8); totalKills++; }
@@ -769,7 +780,7 @@ if(phase==='game2' && !transitioning){
     // arrows vs skels
     for(let ai=arrows.length-1; ai>=0; ai--){
       for(let si=skels.length-1; si>=0; si--){
-        const s=skels[si], a=arrows[ai];
+        const s=skels[si], a=arrows[ai]; if(s.dead) continue;
         if(hit(a,s)){
           // shield block?
           if(s.kind==='shield' && s.shieldUp){
@@ -777,7 +788,7 @@ if(phase==='game2' && !transitioning){
             arrows.splice(ai,1); spawnSparks(a.x,a.y,4);
            playIron(); }else{
             s.hp--; arrows.splice(ai,1); spawnSparks(s.x+s.w/2,s.y+s.h/2,7);
-            playBone(); if(s.hp<=0){ skels.splice(si,1); skelKills++; totalKills++; }
+            playBone(); if(s.hp<=0){ s.dead=true; s.deadUntil=now+1000; skelKills++; totalKills++; }
           }
           break;
         }
@@ -787,10 +798,10 @@ if(phase==='game2' && !transitioning){
     // arrows vs archers
     for(let ai=arrows.length-1; ai>=0; ai--){
       for(let ii=archers.length-1; ii>=0; ii--){
-        const r=archers[ii], a=arrows[ai];
+        const r=archers[ii], a=arrows[ai]; if(r.dead) continue;
         if(hit(a,r)){
           r.hp--; arrows.splice(ai,1); spawnSparks(r.x+r.w/2,r.y+r.h/2,7);
-          playBone(); if(r.hp<=0){ archers.splice(ii,1); skelKills++; totalKills++; }
+          playBone(); if(r.hp<=0){ r.dead=true; r.deadUntil=now+1000; skelKills++; totalKills++; }
           break;
         }
       }
@@ -909,7 +920,7 @@ setInterval(()=>{
     const x = Math.floor(130 + Math.random()*(canvas.width-260 - s(48)));
     const dy = kind==='walker' ? (1.20+Math.random()*0.50) : (1.00+Math.random()*0.40);
     skels.push({
-      kind, x, y:-64, w:s(48), h:s(64), dy, hp:(kind==='shield'?3:2),
+      kind, x, y:-64, w:s(64), h:s(64), dy, hp:(kind==='shield'?3:2),
       anim:0, seed: Math.random()*Math.PI*2,
       shieldUp:false, shieldT:0
     });
@@ -921,11 +932,11 @@ setInterval(()=>{
     const ax = Math.floor(130 + Math.random()*(canvas.width-260 - s(48)));
     const ay = Math.floor(40 + Math.random()*100);
     archers.push({
-      x:ax, y:ay, w:s(48), h:s(64), hp:2,
+      x:ax, y:ay, w:s(64), h:s(64), hp:2,
       vx: (Math.random()<0.5?1:-1)*0.35, vy: (Math.random()<0.5?1:-1)*0.25,
       minX:130, maxX:canvas.width - 130 - s(48), minY:20, maxY:200,
       lastShot:0, shootCD: 2200 + Math.random()*1200,
-      frame:0
+      frame:0, shotFlash:0
     });
   }
 }, 2000);
@@ -1656,6 +1667,7 @@ function drawGame2(){
 
   // skels
   skels.forEach(s=>{
+    if(s.dead){ const d=(s.kind==='walker'?skelWalkDead:skelShieldDead); if(ready(d)) ctx.drawImage(d,s.x,s.y,s.w,s.h); return; }
     drawShadow(s.x, s.y, s.w, s.h, 0.85, 0.22, 9);
     const fr = (s.kind==='walker'? skelWalk[skelFrame] : skelShield[ s.shieldUp ? 1 : skelFrame ]);
     if(ready(fr)) ctx.drawImage(fr, s.x, s.y, s.w, s.h);
@@ -1663,8 +1675,9 @@ function drawGame2(){
 
   // archers
   archers.forEach(r=>{
+    if(r.dead){ if(ready(skelArcherDead)) ctx.drawImage(skelArcherDead,r.x,r.y,r.w,r.h); return; }
     drawShadow(r.x, r.y, r.w, r.h, 0.85, 0.22, 9);
-    const fr = skelArcher[skelFrame];
+    const fr = (r.shotFlash>0) ? skelArcher[1] : skelArcher[0];
     if(ready(fr)) ctx.drawImage(fr, r.x, r.y, r.w, r.h);
   });
 

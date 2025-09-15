@@ -140,6 +140,11 @@ const necroMagic  = [ I('mageboss_magic_01.png'), I('mageboss_magic_02.png') ];
 
 // === Human mage (Stage 2 bandit mage) ===
 const mageFr = [ I('human_mage_00.png'), I('human_mage_01.png') ];
+// Dead-frame sprites for bandits
+const rogueDead = I('human_dagger_dead.png');
+const knightDead = I('human_knight_dead.png');
+const mageDead   = I('human_mage_dead.png');
+
 const fireballTex = [ I('fireball_01.png'), I('fireball_02.png') ];
 
 // === Bug level (Stage 3) ===
@@ -281,17 +286,27 @@ const sBone = new Audio('bone_crunch.wav'); sBone.volume = .9;
 const sIron = new Audio('iron-hit.wav');   sIron.volume = .9;
 const playBone = ()=>{ try{ sBone.cloneNode().play().catch(()=>{}); }catch(_e){} };
 const playIron = ()=>{ try{ sIron.cloneNode().play().catch(()=>{}); }catch(_e){} };
+// --- bandit SFX ---
+const sDaggerDeath = new Audio('dagger-death.wav'); sDaggerDeath.volume = .9;
+const sKnightDeath = new Audio('knight-death.wav'); sKnightDeath.volume = .9;
+const sMageDeath   = new Audio('mage-death.wav');   sMageDeath.volume   = .9;
+const sFireBurst   = new Audio('fire-burst.wav');   sFireBurst.volume   = .8;
+
+const playDaggerDeath = ()=>{ try{ sDaggerDeath.cloneNode().play().catch(()=>{}); }catch(_e){} };
+const playKnightDeath = ()=>{ try{ sKnightDeath.cloneNode().play().catch(()=>{}); }catch(_e){} };
+const playMageDeath   = ()=>{ try{ sMageDeath.cloneNode().play().catch(()=>{}); }catch(_e){} };
+const playFireBurst   = ()=>{ try{ sFireBurst.cloneNode().play().catch(()=>{}); }catch(_e){} };
+
 
 
 function applySFXMaster(){
-  const base = [sUghWAV, sUghMP3, sGameOver, sShotB, sHitB, sBone, sIron];
+  const base = [sUghWAV, sUghMP3, sGameOver, sShotB, sHitB, sBone, sIron, sDaggerDeath, sKnightDeath, sMageDeath, sFireBurst];
   const baseVol = new Map([
     [sUghWAV,0.6],[sUghMP3,0.6],[sGameOver,0.8],[sShotB,0.55],[sHitB,0.9],
-    [sBone,0.9],[sIron,0.9]
+    [sBone,0.9],[sIron,0.9],[sDaggerDeath,0.9],[sKnightDeath,0.9],[sMageDeath,0.9],[sFireBurst,0.8]
   ]);
   base.forEach(a=>{ try{ a.volume = Math.max(0, Math.min(1, (baseVol.get(a)||a.volume) * sfxMaster)); }catch(_e){} });
 }
-
 
 applySFXMaster();
 
@@ -1003,6 +1018,7 @@ function updateBandits(){
   // heavy knight (slow chase, 5 hp, instant kill on touch)
   for(let i=knights.length-1;i>=0;i--){
     const k = knights[i];
+    if(k.dead){ if(now >= (k.deadUntil||0)){ knights.splice(i,1); } continue; }
     const ex = elf.x + elf.w/2, cx = k.x + k.w/2;
     const dirX = Math.sign(ex - cx);
     const HOMING=0.6, FORWARD=0.25;  // tweak here
@@ -1016,6 +1032,7 @@ function updateBandits(){
   // dagger rogues
   for(let i=rogues.length-1;i>=0;i--){
     const r = rogues[i];
+    if(r.dead){ if(now >= (r.deadUntil||0)){ rogues.splice(i,1); } continue; }
     r.y += step + r.dy;
     if(!r.started && r.y > canvas.height*0.25){ r.started=true; r.lastThrow=now; }
     if(r.started && now - r.lastThrow > r.throwCD){
@@ -1039,8 +1056,8 @@ function updateBandits(){
   }
 
   // mages (patrol, shoot toward elf)
-  for(let i=mages.length-1;i>=0;i--){
-    const m=mages[i];
+  for(let i=mages.length-1;i>=0;i--){ const m=mages[i];
+    if(m.dead){ if(now >= (m.deadUntil||0)){ mages.splice(i,1); } continue; }
     m.x += m.vx; m.y += step + m.vy;
     if(m.x<m.minX){m.x=m.minX; m.vx=Math.abs(m.vx);} if(m.x>m.maxX){m.x=m.maxX; m.vx=-Math.abs(m.vx);}
     if(m.y<m.minY){m.y=m.minY; m.vy=Math.abs(m.vy);} if(m.y>m.maxY){m.y=m.maxY; m.vy=-Math.abs(m.vy);}
@@ -1052,11 +1069,11 @@ function updateBandits(){
       const len=Math.max(1, Math.hypot(dx,dy)); const spd=3.4; dx=dx/len*spd; dy=dy/len*spd;
       const texIndex = MAGE_CAST_PATTERN[mageCastPtr++ % MAGE_CAST_PATTERN.length];
       fireballs.push({x:m.x+m.w/2-10,y:m.y+m.h/2-10,w:s(20),h:s(20),dx,dy,tex:texIndex, ang:0, spin:(Math.random()<0.5?-1:1)*0.22});
-      m.castFlash=140;
+      m.castFlash=140; playFireBurst();
     }
 
     if(hit(m,elf)){ m.hp=0; lose(); }
-    if(m.hp<=0){ mages.splice(i,1); totalKills++; spawnSparks(m.x+m.w/2,m.y+m.h/2,8); }
+    if(m.hp<=0){ if(!m.dead){ m.dead=true; m.deadUntil=now+1000; totalKills++; spawnSparks(m.x+m.w/2,m.y+m.h/2,8); playMageDeath(); } }
   }
 
   // fireballs
@@ -1066,27 +1083,26 @@ function updateBandits(){
     if(f.x<-30||f.x>canvas.width+30||f.y>canvas.height+30||f.y<-30){ fireballs.splice(i,1); continue; }
     if(hit(f,elf)){ fireballs.splice(i,1); lose(); }
   }
-
-  
-  // SFX pre-pass: metal hit on knight when arrow connects
-  try{
-    for(let ai=arrows.length-1; ai>=0; ai--){
-      const a = arrows[ai];
-      for(let i=knights.length-1; i>=0; i--){
-        const k = knights[i];
-        if(hit(a,k)){ playIron(); break; }
-      }
-    }
-  }catch(_e){}
-
-  // arrows vs enemies
+// arrows vs enemies
   for(let ai=arrows.length-1; ai>=0; ai--){
     const a=arrows[ai]; let hitAny=false;
-    for(let i=knights.length-1;i>=0;i--){ const k=knights[i]; if(hit(a,k)){ k.hp--; arrows.splice(ai,1); spawnSparks(k.x+k.w/2,k.y+k.h/2,7); hitAny=true; if(k.hp<=0){ knights.splice(i,1); totalKills++; } break; } }
+    for(let i=knights.length-1;i>=0;i--){ const k=knights[i]; if(k.dead) continue; if(hit(a,k)){
+            const lethal = (k.hp-1) <= 0;
+            k.hp--;
+            arrows.splice(ai,1);
+            spawnSparks(k.x+k.w/2,k.y+k.h/2,7);
+            hitAny = true;
+            if(lethal){
+              if(!k.dead){ k.dead = true; k.deadUntil = now + 1000; totalKills++; playKnightDeath(); }
+            }else{
+              playIron();
+            }
+            break;
+          } }
     if(hitAny) continue;
-    for(let i=rogues.length-1;i>=0;i--){ const r=rogues[i]; if(hit(a,r)){ r.hp--; arrows.splice(ai,1); spawnSparks(r.x+r.w/2,r.y+r.h/2,7); hitAny=true; if(r.hp<=0){ rogues.splice(i,1); totalKills++; } break; } }
+    for(let i=rogues.length-1;i>=0;i--){ const r=rogues[i]; if(r.dead) continue; if(hit(a,r)){ r.hp--; arrows.splice(ai,1); spawnSparks(r.x+r.w/2,r.y+r.h/2,7); hitAny=true; if(r.hp<=0){ if(!r.dead){ r.dead=true; r.deadUntil=now+1000; totalKills++; playDaggerDeath(); } } break; } }
     if(hitAny) continue;
-    for(let i=mages.length-1;i>=0;i--){ const m=mages[i]; if(hit(a,m)){ m.hp--; arrows.splice(ai,1); spawnSparks(m.x+m.w/2,m.y+m.h/2,7); hitAny=true; if(m.hp<=0){ mages.splice(i,1); totalKills++; } break; } }
+    for(let i=mages.length-1;i>=0;i--){ const m=mages[i]; if(hit(a,m)){ m.hp--; arrows.splice(ai,1); spawnSparks(m.x+m.w/2,m.y+m.h/2,7); hitAny=true; if(m.hp<=0){ if(!m.dead){ m.dead=true; m.deadUntil=now+1000; totalKills++; playMageDeath(); } } break; } }
   }
 
   // update sparks
@@ -1110,14 +1126,14 @@ function drawBandits(){
   });
 
   // knights
-  knights.forEach(k=>{
+  knights.forEach(k=>{ if(k.dead){ if(ready(knightDead)) ctx.drawImage(knightDead, k.x, k.y, k.w, k.h); return; }
     drawShadow(k.x, k.y, k.w, k.h, 0.95, 0.22, 9);
     const fr = k.switched ? knightFr[1] : knightFr[0];
     if(ready(fr)) ctx.drawImage(fr, k.x, k.y, k.w, k.h);
   });
 
   // rogues
-  rogues.forEach(r=>{
+  rogues.forEach(r=>{ if(r.dead){ if(ready(rogueDead)) ctx.drawImage(rogueDead, r.x, r.y, r.w, r.h); return; }
     drawShadow(r.x, r.y, r.w, r.h, 0.95, 0.22, 4);
     const fr = (r.castFlash>0) ? rogueFr[1] : rogueFr[0];
     if(ready(fr)) ctx.drawImage(fr, r.x, r.y, r.w, r.h);
@@ -1127,7 +1143,7 @@ function drawBandits(){
   thrownDaggers.forEach(d=>{ if(ready(daggerImg)) ctx.drawImage(daggerImg, d.x, d.y, d.w, d.h); else { ctx.fillStyle='#ccc'; ctx.fillRect(d.x,d.y,d.w,d.h); } });
 
   // mages
-  mages.forEach(m=>{
+  mages.forEach(m=>{ if(m.dead){ if(ready(mageDead)) ctx.drawImage(mageDead, m.x, m.y, m.w, m.h); return; }
     drawShadow(m.x, m.y, m.w, m.h, 1.20, 0.22, 4);
     const fr = (m.castFlash>0) ? mageFr[1] : mageFr[0];
     if(ready(fr)) ctx.drawImage(fr, m.x, m.y, m.w, m.h);

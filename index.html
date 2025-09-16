@@ -46,6 +46,248 @@ function autoscale(){
 addEventListener('resize',autoscale); autoscale();
 
 /* ── canvas + helper ── */
+/* === i18n === */
+const TEXT = {
+  en: {
+    ui: {
+      menu_new: "New Game",
+      menu_settings: "Settings",
+      menu_gallery: "Gallery",
+      menu_creators: "Credits",
+      hint_menu: "↑/↓ choose • Enter — confirm",
+      settings_music: "Music",
+      settings_sfx: "SFX",
+      settings_language: "Language",
+      settings_hint: "←/→ change • ESC — back",
+      gallery_empty: "No images (Image01..05.png)",
+      gallery_hint: "←/→ browse • ESC — back",
+      cont: "Click to continue",
+      game_over: "GAME OVER",
+      restart_hint: "Click or press R to restart",
+      total: "Total: ",
+      credits_title: "Credits",
+      creators_lines: [
+        "Credits",
+        " ",
+        "Idea & Inspiration: Katarina",
+        "Code, art & pixel magic: Miriel (ChatGPT)",
+        "Special thanks to WERTIGU for the elf animation.",
+        " ",
+        "ESC — back"
+      ]
+    },
+    title: {
+      story: "Story",
+      level1: "Level 1: Skeleton Gorge",
+      level2: "Level 2: Bandit Lair",
+      level3: "Level 3: Bug Hive"
+    },
+    boss: { elitra: "Elitra", necromancer: "Necromancer" },
+    story: {
+      "0":[["Returning home, Miriel didn’t see Katarina by the house.","Inside, there was only silence."]],
+      "1":[["The fire still burned on the stove, shards of dishes lay scattered on the floor.","Katarina was nowhere to be found."]],
+      "2":[["Climbing upstairs, Miriel peered into the bedroom."],["A note lay on the bed."]],
+      "3":[["Miriel’s heart clenched in pain."]],
+      "4":[["Miriel frowned. She knew that emblem.","The Black Elitra — a clan of zealots and killers."]],
+      "5":[["She rushed down the stairs, grabbed the bow left by the door","and dashed into the forest to save Katarina."]],
+      "6":[["By evening she reached a ravine beyond which the forest lay."],["She had barely taken a few steps when pale shapes stirred in the murk and mist — the dead.","Skeletons."]],
+      "8":[["After cutting through the ravine swarming with skeletons, Miriel reached the place she sought in the forest."],["In a clearing she saw a fire and people gathered around it."],["Bandits, mages, rogues — and even a knight in heavy armor."]],
+      "9":[["As the elf came into view, a low female voice rang out."],["A sorceress in a black hooded robe stepped into the clearing."],["“Where is my friend?” Miriel demanded."],["The sorceress only laughed wickedly in reply."]],
+      "10":[["“Not so fast, darling,” the sorceress sneered."],["“I see you dealt with my servants in the ravine.”"],["“Necromancy is black magic and you will pay for this!” Miriel snapped, drawing an arrow."],["“Take her, boys!” the necromancer ordered, and her minions rushed at Miriel."]],
+      "11":[["The necromancer lay face down in the grass."],["Miriel came closer and turned her over."],["“Answer me! Where is my Katarina? Why did you take her?”"],["The necromancer rasped in a faint voice: “It’s too late.”"],["“Your friend will be sacrificed to our god, Elitra.”"],["The dying necromancer pointed toward the path and drew her last breath."]],
+      "12":[["Miriel rushed along the forest path, but huge beetles blocked her way."],["Clicking their mandibles, they charged the elf."],["In the distance loomed a huge, hideous beetle-monster."]]
+    },
+    end: {
+      "0":["Bristling with arrows, the monstrous creature","collapsed lifeless onto the grass.","The rest scattered."],
+      "1":["The elf looked back and saw","Katarina running toward her,","her face alight with joy."],
+      "2":["Miriel rushed to meet her","and wrapped her in an embrace.","“Let’s go home,” the elf said,","and kissed her."]
+    }
+  },
+
+  ru: {
+    ui: {
+      menu_new: "Новая игра",
+      menu_settings: "Настройки",
+      menu_gallery: "Галерея",
+      menu_creators: "Создатели",
+      hint_menu: "↑/↓ выбрать • Enter — подтвердить",
+      settings_music: "Музыка",
+      settings_sfx: "SFX",
+      settings_language: "Язык",
+      settings_hint: "←/→ изменить • ESC — назад",
+      gallery_empty: "Нет изображений (Image01..05.png)",
+      gallery_hint: "←/→ листать • ESC — назад",
+      cont: "Кликните, чтобы продолжить",
+      game_over: "ИГРА ОКОНЧЕНА",
+      restart_hint: "Клик или R — перезапуск",
+      total: "Всего: ",
+      credits_title: "Создатели",
+      creators_lines: [
+        "Создатели",
+        " ",
+        "Идея и вдохновение: Katarina",
+        "Код, арт и магия пикселей: Miriel (ChatGPT)",
+        "Особая благодарность WERTIGU за анимацию эльфийки.",
+        " ",
+        "ESC — назад"
+      ]
+    },
+    title: {
+      story: "История",
+      level1: "Уровень 1: Ущелье скелетов",
+      level2: "Уровень 2: Логово бандитов",
+      level3: "Улей жуков"
+    },
+    boss: { elitra: "Элитра", necromancer: "Некромант" },
+    story: {
+  0: [ // 001
+    ["Вернувшись домой, Мириэль не увидела Катарину возле дома.",
+     "Пройдя внутрь, она услышала только тишину."]
+  ],
+  1: [ // 002
+    ["В кухне всё ещё пылал огонь на плите, а на полу валялись осколки посуды.",
+     "Катарины нигде не было."]
+  ],
+  2: [ // 003
+    ["Поднявшись наверх, Мириэль заглянула в спальню."],
+    ["На кровати лежала записка."]
+  ],
+  3: [ // 004
+    ["Сердце Мириэль болезненно сжалось."]
+  ],
+  4: [ // 005
+    ["Мириэль нахмурилась. Она узнала эту эмблему.",
+     "Чёрная Элитра. Клан фанатиков и убийц."]
+  ],
+  5: [ // 006
+    [" Она сбежала вниз по лестнице, схватила оставленный у двери лук",
+     "и устремилась в лес спасать Катарину."]
+  ],
+  6: [ // 007
+    ["К вечеру она добралась до ущелья, за которым лежал лес."],
+    ["Едва она ступила несколько шагов,",
+     "как из мрака и тумана ущелья к ней потянулись бледные силуэты — мертвецы.",
+     "Скелеты."]
+  ],
+  8: [ // 009
+    ["Преодолев кишащее скелетами ущелье, Мириэль добралась до нужного места в лесу."],
+    ["На поляне она увидела костёр и сидящих вокруг него людей."],
+    ["Бандиты, маги, разбойники — и даже рыцарь в тяжёлых доспехах."]
+  ],
+  9: [ // 010
+    ["Когда эльфийка показалась в поле зрения, раздался низкий женский голос."],
+    ["На поляне появилась магичка в чёрной мантии с закрытым лицом."],
+    ["«Где моя подруга?» — гневно спросила Мириэль."],
+    ["В ответ магичка только злобно рассмеялась."]
+  ],
+  10: [ // 011
+    ["«Не всё так просто, дорогая», — язвительно усмехнулась магичка."],
+    ["«Вижу, ты справилась с моими слугами в ущелье»."],
+    ["«Некромантия — это чёрная магия, и ты за это поплатишься!» — ответила Мириэль, доставая стрелу."],
+    ["«Взять её, мальчики!» — скомандовала некромант, и её слуги бросились к Мириэль."]
+  ],
+  11: [ // 012
+    ["Некромант лежала на траве ничком."],
+    ["Мириэль подошла и перевернула её."],
+    ["«Отвечай, где моя Катарина? Зачем вы её похитили?»"],
+    ["Некромант прохрипела тихим голосом: «Уже поздно»."],
+    ["«Твоя подруга будет принесена в жертву нашему богу Элитре»."],
+    ["Умирающая некромант указала пальцем в сторону тропы и испустила дух."]
+  ],
+  12: [ // 013
+    ["Мириэль бросилась по тропинке в лес, но дорогу ей преградили огромные жуки."],
+    ["Щёлкая челюстями, они ринулись в атаку на эльфийку."],
+    ["Вдали виднелся огромный уродливый жук-монстр."]
+  ]
+},
+    end: {
+      "0":["Утыканный стрелами, чудовищный монстр","рухнул замертво на траву.","Остальные разбежались."],
+      "1":["Эльфийка оглянулась и увидела","бежащую к ней Катарину.","Она сияла от радости."],
+      "2":["Мириэль бросилась ей навстречу","и заключила её в свои объятия.","«Пойдём домой», — сказала эльфийка,","и поцеловала её."]
+    }
+  },
+
+  uk: {
+    ui: {
+      menu_new: "Нова гра",
+      menu_settings: "Налаштування",
+      menu_gallery: "Галерея",
+      menu_creators: "Творці",
+      hint_menu: "↑/↓ обрати • Enter — підтвердити",
+      settings_music: "Музика",
+      settings_sfx: "SFX",
+      settings_language: "Мова",
+      settings_hint: "←/→ змінити • ESC — назад",
+      gallery_empty: "Немає зображень (Image01..05.png)",
+      gallery_hint: "←/→ гортати • ESC — назад",
+      cont: "Клацніть, щоб продовжити",
+      game_over: "КІНЕЦЬ ГРИ",
+      restart_hint: "Клік або R — перезапуск",
+      total: "Всього: ",
+      credits_title: "Творці",
+      creators_lines: [
+        "Творці",
+        " ",
+        "Ідея та натхнення: Katarina",
+        "Код, арт і піксельна магія: Miriel (ChatGPT)",
+        "Особлива подяка WERTIGU за анімацію ельфійки.",
+        " ",
+        "ESC — назад"
+      ]
+    },
+    title: {
+      story: "Історія",
+      level1: "Рівень 1: Яр скелетів",
+      level2: "Рівень 2: Лігво бандитів",
+      level3: "Вулик жуків"
+    },
+    boss: { elitra: "Елітра", necromancer: "Некромант" },
+    story: {
+      "0":[["Повернувшись додому, Міріель не побачила Катерину біля хати.","Усередині її зустріла лише тиша."]],
+      "1":[["На плиті ще палав вогонь, а на підлозі валялися черепки.","Катерини ніде не було."]],
+      "2":[["Піднявшись нагору, Міріель зазирнула до спальні."],["На ліжку лежала записка."]],
+      "3":[["Серце Міріель болісно стиснулося."]],
+      "4":[["Міріель насупилася. Вона впізнала цю емблему.","Чорна Елітра — клан фанатиків і убивць."]],
+      "5":[["Вона стрімголов спустилася сходами, схопила лук біля дверей","і кинулася в ліс рятувати Катерину."]],
+      "6":[["До вечора вона дісталася яру, за яким тягнувся ліс."],["Ледь ступила кілька кроків, як з туману потяглися бліді постаті — мерці.","Скелети."]],
+      "8":[["Подолавши яр, що кишів скелетами, Міріель дісталася потрібної галявини в лісі."],["На ній палало вогнище, довкола сиділи люди."],["Бандити, маги, розбійники — і навіть лицар у важких обладунках."]],
+      "9":[["Коли ельфійка з’явилася в полі зору, залунав низький жіночий голос."],["На галявині постала чаклунка в чорній мантії з прихованим обличчям."],["«Де моя подруга?» — гнівно спитала Міріель."],["У відповідь чаклунка тільки зло розсміялася."]],
+      "10":[["«Не все так просто, люба», — єхидно всміхнулася чаклунка."],["«Бачу, ти впоралася з моїми слугами в яру»."],["«Некромантія — це чорна магія, і ти за це поплатишся!» — відповіла Міріель, виймаючи стрілу."],["«Взяти її, хлопчики!» — наказала некромантка, і слуги кинулися на Міріель."]],
+      "11":[["Некромант лежала ниць у траві."],["Міріель підійшла й перевернула її."],["«Відповідай, де моя Катерина? Навіщо ви її викрали?»"],["Некромант прохрипіла слабким голосом: «Вже пізно»."],["«Твою подругу принесуть у жертву нашому богові — Елітрі»."],["Вмираюча некромантка вказала на стежку й видихнула востаннє."]],
+      "12":[["Міріель кинулася стежкою в ліс, та шлях їй перегородили велетенські жуки."],["Цокочучи щелепами, вони кинулися на ельфійку."],["Удалині маячив велетенський потворний жук-монстр."]]
+    },
+    end: {
+      "0":["Прошитий стрілами, потворний монстр","рухнув мертвим на траву.","Інші розбіглися."],
+      "1":["Ельфійка озирнулася й побачила,","як до неї біжить Катерина,","осяяна радістю."],
+      "2":["Міріель кинулася їй назустріч","і пригорнула її до себе.","«Підемо додому», — сказала ельфійка,","і поцілувала її."]
+    }
+  }
+};
+const LANGS = ['en','ru','uk'];
+const LANG_LABEL = {en:'English', ru:'Русский', uk:'Українська'};
+const DEFAULT_LANG = 'en';
+let lang = localStorage.getItem('lang') || DEFAULT_LANG;
+if(!TEXT[lang]) lang = DEFAULT_LANG;
+let L = TEXT[lang];
+let storyText = L.story;
+let endText   = L.end;
+function t(path, fallback){
+  const parts = path.split('.');
+  let cur = L;
+  for(const p of parts){ cur = (cur && cur[p]!==undefined) ? cur[p] : null; if(cur===null) break; }
+  if(cur===null){
+    let curF = TEXT[DEFAULT_LANG];
+    for(const p of parts){ curF = (curF && curF[p]!==undefined) ? curF[p] : null; if(curF===null) break; }
+    return curF ?? (fallback ?? path);
+  }
+  return cur;
+}
+function setLang(newLang){
+  if(!TEXT[newLang]) return;
+  lang = newLang; localStorage.setItem('lang', lang);
+  L = TEXT[lang]; storyText = L.story; endText = L.end;
+}
+
 const canvas=document.getElementById('gameCanvas'), ctx=canvas.getContext('2d');
 ctx.imageSmoothingEnabled=false;
 const I=s=>{const i=new Image();i.src=s;return i;};
@@ -318,13 +560,13 @@ let keys={}, lives=5, score=0, gameOver=false;
 let totalKills=0; // глобальный счётчик убийств (все карты подряд)
 let lastShot=0, shootCD=350, bugCnt=0;
 /* ── NES-like main menu ── */
-let menuItems = ['Новая игра','Настройки','Галерея','Создатели'];
+let menuItems = ['new','settings','gallery','creators'];
 let menuIdx = 0;
 
 /* settings state */
 let musicMaster = 0.80; // 0..1
 let sfxMaster   = 1.00; // 0..1
-let settingsIdx = 0;    // 0: music, 1: sfx
+let settingsIdx = 0;    // 0: music, 1: sfx, 2: language
 
 /* gallery state */
 const galleryImgs = [1,2,3,4,5].map(n=>I(`Image0${n}.png`));
@@ -543,18 +785,18 @@ document.addEventListener('keydown',e=>{
     else if(e.key==='ArrowDown'){ menuIdx = (menuIdx + 1) % menuItems.length; }
     else if(e.key==='Enter'){
       const sel = menuItems[menuIdx];
-      if(sel==='Новая игра'){ phase='story'; fade(musMenu,0); fade(musStory,.6); }
-      else if(sel==='Настройки'){ phase='settings'; }
-      else if(sel==='Галерея'){ phase='gallery'; }
-      else if(sel==='Создатели'){ phase='creators'; }
+      if(menuIdx===0){ phase='story'; fade(musMenu,0); fade(musStory,.6); }
+      else if(menuIdx===1){ phase='settings'; }
+      else if(menuIdx===2){ phase='gallery'; }
+      else if(menuIdx===3){ phase='creators'; }
     }
     return;
   }
 
   // === SETTINGS NAV ===
   if(phase==='settings'){
-    if(e.key==='ArrowUp'){ settingsIdx = (settingsIdx - 1 + 2) % 2; }
-    else if(e.key==='ArrowDown'){ settingsIdx = (settingsIdx + 1) % 2; }
+    if(e.key==='ArrowUp'){ settingsIdx = (settingsIdx - 1 + 3) % 3; }
+    else if(e.key==='ArrowDown'){ settingsIdx = (settingsIdx + 1) % 3; }
     else if(e.key==='ArrowLeft' || e.key==='ArrowRight'){
       const delta = (e.key==='ArrowRight') ? 0.05 : -0.05;
       if(settingsIdx===0){
@@ -568,6 +810,10 @@ document.addEventListener('keydown',e=>{
       }else if(settingsIdx===1){
         sfxMaster = Math.max(0, Math.min(1, sfxMaster + delta));
         applySFXMaster();
+      }else if(settingsIdx===2){
+        const dir = (e.key==='ArrowRight') ? 1 : -1;
+        const idx = (LANGS.indexOf(lang)+dir+LANGS.length)%LANGS.length;
+        setLang(LANGS[idx]);
       }
     }else if(e.key==='Escape'){ phase='menu'; }
     return;
@@ -618,7 +864,7 @@ canvas.addEventListener('click',()=>{
       const flat = (linesFull||[]).join('');
       if(Math.floor(typePos) < flat.length){ typePos = flat.length; storyClickGuardUntil = now + 120; }
       else {
-        const slides = storyTextRU[idx] || [];
+        const slides = storyText[idx] || [];
         if(storySlide + 1 < slides.length){ storySlide++; resetTyping(); storyClickGuardUntil = now + 120; }
         else { fadeDir=1; storyClickGuardUntil = now + 220; }
       }
@@ -628,7 +874,7 @@ canvas.addEventListener('click',()=>{
   else if(phase==='endSlides'){
   // если текст не допечатан — сначала докручиваем до конца,
   // иначе — запускаем переход к следующему слайду
-  const lines = endTextRU[endIdx] || [];
+  const lines = endText[endIdx] || [];
   const flat  = (lines||[]).join(' ');
   if(Math.floor(endTypePos) < flat.length){
     endTypePos = flat.length;
@@ -710,7 +956,7 @@ function update(){
   // --- failsafe: ensure skeleton -> story009..011 once on distance complete
 if(phase==='game2' && !transitioning){
   const _target = canvas.height * BONE_LOOPS_GOAL;
-  if(boneDist >= _target - 0.5){ pendingStoryResume=8; storyMax=11; startTransition('Story','story'); }
+  if(boneDist >= _target - 0.5){ pendingStoryResume=8; storyMax=11; startTransition(t('title.story'),'story'); }
 }
 
   const now = performance.now();
@@ -722,7 +968,7 @@ if(phase==='game2' && !transitioning){
     scrollBoneY += _boneStep;
     boneDist    += _boneStep;
     if(boneDist >= _boneTarget && !transitioning){
-      pendingStoryResume=8; storyMax=11; startTransition('Story','story');
+      pendingStoryResume=8; storyMax=11; startTransition(t('title.story'),'story');
     }
 
     const controls=true;
@@ -978,7 +1224,7 @@ function startBoss(){
   if(phase==='boss') return;           // идемпотентность
   bossGraceUntil = performance.now()+800; // ~0.8s safety window
   phase='boss'; fade(musGame,0); fade(musBoss,.65);
-  boss={x:canvas.width/2 - s(180)/2, y:-s(180), w:s(180), h:s(180), hitFlash:0, name:'Scarlet Widow'};
+  boss={x:canvas.width/2 - s(180)/2, y:-s(180), w:s(180), h:s(180), hitFlash:0, name:'Elitra'};
   bossHp=25; bossAppearing=true;
 }
 
@@ -1155,7 +1401,7 @@ function drawBandits(){
 
   // HUD
   for(let i=0;i<lives;i++) ctx.drawImage(heartImg,20+i*50,20,40,40);
-  ctx.fillStyle='#fff'; ctx.font='24px monospace'; ctx.textAlign='right'; ctx.fillText('Total: '+totalKills,canvas.width-20,46);
+  ctx.fillStyle='#fff'; ctx.font='24px monospace'; ctx.textAlign='right'; ctx.fillText(t('ui.total')+totalKills,canvas.width-20,46);
 
   // sparks
   if(sparkImg && sparkImg.complete){
@@ -1169,9 +1415,9 @@ function drawBandits(){
 
   if(gameOver){
     ctx.fillStyle='red'; ctx.font='48px sans-serif'; ctx.textAlign='center';
-    ctx.fillText('GAME OVER',canvas.width/2,canvas.height/2);
+    ctx.fillText(t('ui.game_over'),canvas.width/2,canvas.height/2);
     ctx.font='22px monospace'; ctx.fillStyle='#fff';
-    ctx.fillText('Click or press R to restart',canvas.width/2,canvas.height/2+40);
+    ctx.fillText(t('ui.restart_hint'),canvas.width/2,canvas.height/2+40);
   }
 }
 
@@ -1188,7 +1434,7 @@ setInterval(()=>{
     const batch = ROGUE_SPAWN_BATCH[Math.floor(Math.random()*ROGUE_SPAWN_BATCH.length)];
     for(let i=0;i<batch;i++){
       const x = Math.floor(130 + Math.random()*(canvas.width-260-40));
-      rogues.push({x, y:-s(60/1.4), w:s(44), h:s(60), dy:(1.2+Math.random()*0.4)*0.35, hp:2, started:false, lastThrow:0, throwCD: 1500+Math.random()*900, castFlash:0});
+      rogues.push({x, y:-s(60/1.4), w:s(60), h:s(60), dy:(1.2+Math.random()*0.4)*0.35, hp:2, started:false, lastThrow:0, throwCD: 1500+Math.random()*900, castFlash:0});
     }
   }
 
@@ -1240,7 +1486,7 @@ function drawNecro(){
   ctx.fillStyle='#5af'; ctx.fillRect(necro.x, necro.y-16, Math.max(0,barW*p), barH);
   ctx.strokeStyle='#fff'; ctx.strokeRect(necro.x, necro.y-16, barW, barH);
   // name
-  ctx.fillStyle='#fff'; ctx.font='18px monospace'; ctx.textAlign='center'; ctx.fillText('Necromancer', necro.x+necro.w/2, necro.y-26);
+  ctx.fillStyle='#fff'; ctx.font='18px monospace'; ctx.textAlign='center'; ctx.fillText(t('boss.necromancer'), necro.x+necro.w/2, necro.y-26);
   for(let ai=arrows.length-1; ai>=0; ai--){
     const a=arrows[ai];
     if(a.x<necro.x+necro.w && a.x+a.w>necro.x && a.y<necro.y+necro.h && a.y+a.h>necro.y){
@@ -1285,13 +1531,13 @@ function drawBanditPostBoss(){
   if(!banditAfter.done && Math.abs(elf.x - banditAfter.targetX) <= 2 && Math.abs(elf.y - banditAfter.targetY) <= 2){
     banditAfter.done = true;
     try{ fade(musVictory,0); }catch(_){}
-    pendingStoryResume = 11; storyMax = 13; startTransition('Story','story');
+    pendingStoryResume = 11; storyMax = 13; startTransition(t('title.story'),'story');
   }
   // failsafe: force transition after 6s
   if(!banditAfter.done && performance.now() - banditAfter.t0 > 6000){
     banditAfter.done = true;
     try{ fade(musVictory,0); }catch(_){}
-    pendingStoryResume = 11; storyMax = 13; startTransition('Story','story');
+    pendingStoryResume = 11; storyMax = 13; startTransition(t('title.story'),'story');
   }
   // draw elf & HUD
   drawElfShadow();
@@ -1318,7 +1564,8 @@ function drawMenu(){
   ctx.font='28px monospace'; ctx.textAlign='left'; ctx.textBaseline='middle';
   for(let i=0;i<menuItems.length;i++){
     const y = boxY + pad + lineH*(i+0.5);
-    const txt = menuItems[i];
+    const id = menuItems[i];
+    const txt = (id==='new')?t('ui.menu_new'):(id==='settings')?t('ui.menu_settings'):(id==='gallery')?t('ui.menu_gallery'):t('ui.menu_creators');
     if(i===menuIdx){
       // selection highlight
       ctx.fillStyle='rgba(255,255,255,0.10)'; ctx.fillRect(boxX+6, y-lineH/2+3, boxW-12, lineH-6);
@@ -1334,7 +1581,7 @@ function drawMenu(){
   // hint
   ctx.save();
   ctx.font='18px monospace'; ctx.fillStyle='#fff'; ctx.textAlign='center';
-  ctx.fillText('↑/↓ выбрать • Enter — подтвердить', W/2, boxY+boxH+28);
+  ctx.fillText(t('ui.hint_menu'), W/2, boxY+boxH+28);
   ctx.restore();
 }
 
@@ -1343,7 +1590,8 @@ function drawSettings(){
   const W=canvas.width, H=canvas.height;
   const boxW = Math.floor(W*0.70), pad=18;
   const lineH=46;
-  const boxH = pad*2 + lineH*2 + 10;
+  const rows = 3; // Music, SFX, Language
+  const boxH = pad*2 + lineH*rows + 10;
   const boxX = Math.floor((W-boxW)/2);
   const boxY = H - UI_BOTTOM_MARGIN - boxH;
 
@@ -1352,31 +1600,34 @@ function drawSettings(){
   ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.strokeRect(boxX+0.5, boxY+0.5, boxW-1, boxH-1);
   ctx.font='26px monospace'; ctx.textAlign='left'; ctx.textBaseline='middle';
 
-  const labels = ['Музыка','SFX'];
-  const values  = [musicMaster, sfxMaster];
-  for(let i=0;i<labels.length;i++){
+  const labels = [t('ui.settings_music'), t('ui.settings_sfx'), t('ui.settings_language')];
+  for(let i=0;i<rows;i++){
     const y = boxY + pad + lineH*(i+0.5);
-    // label
     ctx.fillStyle = (i===settingsIdx)?'#fff':'#ddd';
     ctx.fillText(labels[i], boxX + 18, y);
 
-    // bar
-    const barW = Math.floor(boxW*0.40), barH=12;
-    const barX = boxX + boxW - barW - 24;
-    const barY = y - barH/2;
-    ctx.fillStyle='rgba(255,255,255,0.15)'; ctx.fillRect(barX, barY, barW, barH);
-    ctx.fillStyle='#8df'; ctx.fillRect(barX, barY, Math.floor(barW*values[i]), barH);
-    ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.strokeRect(barX+0.5, barY+0.5, barW-1, barH-1);
-    // value text
-    ctx.fillStyle='#fff';
-    ctx.font='20px monospace';
-    ctx.textAlign='right';
-    ctx.fillText(Math.round(values[i]*100)+'%', barX-10, y);
-    ctx.textAlign='left'; ctx.font='26px monospace';
+    if(i===0 || i===1){
+      const val = (i===0)? musicMaster : sfxMaster;
+      const barW = Math.floor(boxW*0.40), barH=12;
+      const barX = boxX + boxW - barW - 24;
+      const barY = y - barH/2;
+      ctx.fillStyle='rgba(255,255,255,0.15)'; ctx.fillRect(barX, barY, barW, barH);
+      ctx.fillStyle='#8df'; ctx.fillRect(barX, barY, Math.floor(barW*val), barH);
+      ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.strokeRect(barX+0.5, barY+0.5, barW-1, barH-1);
+      ctx.fillStyle='#fff'; ctx.font='20px monospace'; ctx.textAlign='right';
+      ctx.fillText(Math.round(val*100)+'%', barX-10, y);
+      ctx.textAlign='left'; ctx.font='26px monospace';
+    }else if(i===2){
+      // Language row: show current language label at the right, no bar
+      ctx.font='22px monospace'; ctx.textAlign='right'; ctx.fillStyle='#fff';
+      const langLabel = (LANG_LABEL[lang] || lang);
+      ctx.fillText(langLabel, boxX + boxW - 24, y);
+      ctx.textAlign='left'; ctx.font='26px monospace';
+    }
   }
 
   ctx.font='18px monospace'; ctx.textAlign='center'; ctx.fillStyle='#fff';
-  ctx.fillText('←/→ изменить • ESC — назад', W/2, boxY+boxH+28);
+  ctx.fillText(t('ui.settings_hint'), W/2, boxY+boxH+28);
   ctx.restore();
 }
 
@@ -1399,12 +1650,12 @@ function drawGallery(){
     ctx.drawImage(img, dx, dy, dw, dh);
   }else{
     ctx.fillStyle='#fff'; ctx.font='20px monospace'; ctx.textAlign='center';
-    ctx.fillText('Нет изображений (Image01..05.png)', W/2, paneY+paneH/2);
+    ctx.fillText(''+t('ui.gallery_empty')+'', W/2, paneY+paneH/2);
   }
 
   // nav hints
   ctx.font='18px monospace'; ctx.fillStyle='#fff'; ctx.textAlign='center';
-  ctx.fillText('←/→ листать • ESC — назад', W/2, paneY+paneH+28);
+  ctx.fillText(''+t('ui.gallery_hint')+'', W/2, paneY+paneH+28);
   ctx.restore();
 }
 
@@ -1412,16 +1663,7 @@ function drawCreators(){
   drawStart();
   const W=canvas.width, H=canvas.height;
   const boxW = Math.floor(W*0.74), pad=24;
-  // removed duplicate boxX/boxY; anchored below
-  const lines = [
-    'Создатели',
-    ' ',
-    'Идея и вдохновение: Katarina',
-    'Код, арт и магия пикселей: Miriel (ChatGPT)',
-    'Особая благодарность WERTIGU, за анимацию эльфийки.',
-    ' ',
-    'ESC — назад'
-  ];
+  const lines = t('ui.creators_lines') || ['Credits'];
   const boxH = pad*2 + lines.length*34;
   const boxX = Math.floor((W-boxW)/2);
   const boxY = H - UI_BOTTOM_MARGIN - boxH;
@@ -1432,7 +1674,7 @@ function drawCreators(){
   ctx.font='24px monospace'; ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#fff';
 
   let y = boxY + pad;
-  lines.forEach((t,i)=>{ ctx.fillText(t, W/2, y); y+=34; });
+  lines.forEach((tline)=>{ ctx.fillText(tline, W/2, y); y+=34; });
   ctx.restore();
 }
 
@@ -1450,7 +1692,7 @@ function drawContinueHint() {
   ctx.font = '22px monospace';
   ctx.textAlign = 'right';
   ctx.textBaseline = 'bottom';    // базовая линия текста — нижний край
-  ctx.fillText('Click to continue', canvas.width - MARGIN, canvas.height - MARGIN);
+  ctx.fillText(''+t('ui.cont')+'', canvas.width - MARGIN, canvas.height - MARGIN);
 }
 
 
@@ -1543,7 +1785,7 @@ function resetEndTyping(){ endTypePos = 0; endTypeT0 = performance.now(); }
 
 function resetTyping(){ typePos=0; typeT0=performance.now(); }
 function storyCurrentLines(idx){
-  const slides = storyTextRU[idx] || [];
+  const slides = storyText[idx] || [];
   return slides[Math.max(0, Math.min(storySlide, slides.length-1))] || [];
 }
 
@@ -1651,9 +1893,9 @@ function drawStory(){
       fadeDir=-1; fadeScr=1;
       const nextIdx = idx+1;
       if(nextIdx>=storyMax && !transitioning){
-        if(storyMax===7){ startTransition('Level 1: Skeleton Gorge','game2'); }
-        else if(storyMax===11){ startTransition('Level 2: Bandit Lair','bandits'); }
-        else if(storyMax===13){ startTransition('Level 3: Bug Hive','game'); }
+        if(storyMax===7){ startTransition(t('title.level1'),'game2'); }
+        else if(storyMax===11){ startTransition(t('title.level2'),'bandits'); }
+        else if(storyMax===13){ startTransition(t('title.level3'),'game'); }
       }else{ idx = nextIdx; }
     }else if(fadeScr<=0){ fadeDir=0; fadeScr=0; }
 
@@ -1711,7 +1953,7 @@ function drawGame2(){
   // HUD (hearts + kills)
   for(let i=0;i<lives;i++) ctx.drawImage(heartImg,20+i*50,20,40,40);
   ctx.fillStyle='#fff'; ctx.font='24px monospace'; ctx.textAlign='right';
-  ctx.fillText('Total: '+totalKills,canvas.width-20,46);
+  ctx.fillText(t('ui.total')+totalKills,canvas.width-20,46);
 
   
     // Boss meter bar (top-left, above hearts)
@@ -1740,9 +1982,9 @@ function drawGame2(){
 
 if(gameOver){
     ctx.fillStyle='red'; ctx.font='48px sans-serif'; ctx.textAlign='center';
-    ctx.fillText('GAME OVER',canvas.width/2,canvas.height/2);
+    ctx.fillText(t('ui.game_over'),canvas.width/2,canvas.height/2);
     ctx.font='22px monospace'; ctx.fillStyle='#fff';
-    ctx.fillText('Click or press R to restart',canvas.width/2,canvas.height/2+40);
+    ctx.fillText(t('ui.restart_hint'),canvas.width/2,canvas.height/2+40);
   }
 }
 
@@ -1791,20 +2033,20 @@ function drawGame(){
     ctx.fillStyle='#e55'; ctx.fillRect(boss.x, boss.y-16, Math.floor(barW*p), barH);
     ctx.strokeStyle='#fff'; ctx.strokeRect(boss.x, boss.y-16, barW, barH);
     ctx.fillStyle='#fff'; ctx.font='18px monospace'; ctx.textAlign='center';
-    ctx.fillText('Scarlet Widow', boss.x+boss.w/2, boss.y-26);
+    ctx.fillText(t('boss.elitra'), boss.x+boss.w/2, boss.y-26);
   }
 
   // HUD
   for(let i=0;i<lives;i++) ctx.drawImage(heartImg,20+i*50,20,40,40);
   ctx.fillStyle='#fff'; ctx.font='24px monospace'; ctx.textAlign='right';
-  ctx.fillText('Total: '+totalKills,canvas.width-20,46);
+  ctx.fillText(t('ui.total')+totalKills,canvas.width-20,46);
 
   // Game over banner
   if(gameOver){
     ctx.fillStyle='red'; ctx.font='48px sans-serif'; ctx.textAlign='center';
-    ctx.fillText('GAME OVER',canvas.width/2,canvas.height/2);
+    ctx.fillText(t('ui.game_over'),canvas.width/2,canvas.height/2);
     ctx.font='22px monospace'; ctx.fillStyle='#fff';
-    ctx.fillText('Click or press R to restart',canvas.width/2,canvas.height/2+40);
+    ctx.fillText(t('ui.restart_hint'),canvas.width/2,canvas.height/2+40);
   }
 }
 
@@ -1911,7 +2153,7 @@ const endTextRU = {
 function drawEndBox(i){
   // печатаем построчно под теми же параметрами VN
   if(prevEndIdx !== i){ prevEndIdx = i; resetEndTyping(); }
-  const lines = endTextRU[i] || [];
+  const lines = endText[i] || [];
   const flat  = lines.join(' ');
 
   // наращиваем видимую длину
@@ -1936,7 +2178,7 @@ function drawEndBox(i){
   for(let k=0;k<toDraw.length;k++){ ctx.fillText(toDraw[k], x, y); y+=VN.lineHeight; }
   ctx.restore();
 
-  // «Click to continue» — только когда допечатали
+  // «'+t('ui.cont')+'» — только когда допечатали
   const done = (Math.floor(endTypePos) >= flat.length) && flat.length>0;
   if(done && !transitioning) drawContinueHint();
 }

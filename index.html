@@ -442,6 +442,11 @@ function drawElfAnimated(){
   }
 
   if(ready(img)){
+    // blink when invincible
+    const isInvincible = performance.now() < invincibleUntil;
+    if(isInvincible && Math.floor(performance.now()/80) % 2 === 0){
+      ctx.save(); ctx.globalAlpha = 0.3;
+    }
     if(elf.face==='R'){
       ctx.drawImage(img, elf.x, elf.y, elf.w, elf.h);
     }else{
@@ -449,6 +454,9 @@ function drawElfAnimated(){
       ctx.translate(elf.x + elf.w, 0);
       ctx.scale(-1, 1);
       ctx.drawImage(img, 0, elf.y, elf.w, elf.h);
+      ctx.restore();
+    }
+    if(isInvincible && Math.floor(performance.now()/80) % 2 === 0){
       ctx.restore();
     }
   }
@@ -593,7 +601,7 @@ let banditDist=0, SCROLL_BAND=0.8;
 let knights=[], rogues=[], thrownDaggers=[], mages=[], fireballs=[];
 
 // simple animation toggles
-let banditFrame=0; setInterval(()=>banditFrame^=1, 180);
+let banditFrame=0; let _banditFrameId=setInterval(()=>banditFrame^=1, 180);
 
 // mage cast texture pattern: 2x tex0, 2x tex1, then alternating (0,1,0,1), repeat
 const MAGE_CAST_PATTERN = [0,0,1,1,0,1,0,1];
@@ -671,7 +679,7 @@ function updateTransition(){
 
         // Enter Skeleton level
         try{ bugs.length=0; spits.length=0; }catch(_){}
-        scrollBoneY=0; boneDist=0; boneDone=false;
+        scrollBoneY=0; boneDist=0; let boneDone=false;
       }
       if(tr.next==='story' && pendingStoryResume>=0){ idx=pendingStoryResume; pendingStoryResume=-1; fadeDir=0; fadeScr=0; }
       // universal: wipe all projectiles so they don't carry into the next scene
@@ -804,7 +812,9 @@ document.addEventListener('keydown',e=>{
         // re-apply current music volumes by nudging fade to its current value
         try{
           [musMenu,musStory,musGame,musBoss,musVictory].forEach(a=>{
-            if(!a) return; fade(a, a.volume>0 ? a.volume/musicMaster : 0); // keeps relative target
+            if(!a) return;
+            if(musicMaster > 0) fade(a, a.volume>0 ? Math.min(1, a.volume/Math.max(0.01,musicMaster)) * musicMaster : 0);
+            else fade(a, 0);
           });
         }catch(_){}
       }else if(settingsIdx===1){
@@ -837,8 +847,7 @@ document.addEventListener('keydown',e=>{
     phase='story'; fade(musMenu,0); fade(musStory,.6);
   }
 
-  // тестовый запуск босса
-  if(e.key==='b' || e.key==='B') startBoss();
+  // debug boss key removed for release
 
   const canShoot=(phase==='game2')||(phase==='bandits')||(phase==='necroBoss')||(phase==='game')||(phase==='boss'&&!bossAppearing);
   if(canShoot && e.key===' ' && Date.now()-lastShot>shootCD){
@@ -898,9 +907,14 @@ function spawnSparks(x,y,count=6){
 
 
 const hit=(a,b)=>a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;
+let invincibleUntil = 0; // timestamp: elf is invulnerable until this moment
+const INVINCIBLE_MS = 800; // 0.8 seconds of invincibility after hit
+
 const lose=()=>{
   const now = performance.now();
+  if(now < invincibleUntil) return; // still invincible
   lives--; if(lives<0) lives=0;
+  invincibleUntil = now + INVINCIBLE_MS;
   const lostIndex = lives; // zero-based
   heartFx = { x:20+lostIndex*50, y:20, until: now+240 };
   if(lives<=0){ gameOver=true; onGameOver(); playGameOver(); }
@@ -1094,19 +1108,19 @@ if(phase==='game'){
     if(keys.ArrowRight&& elf.x+elf.w<canvas.width-130){ elf.x+=5; elf.img=elfR; elf.face='R'; }
   }
 
-  arrows.forEach((a,i)=>{a.y+=a.dy;if(a.y<-30)arrows.splice(i,1);});
+  for(let i=arrows.length-1;i>=0;i--){arrows[i].y+=arrows[i].dy;if(arrows[i].y<-30)arrows.splice(i,1);}
 
-  bugs.forEach((b,i)=>{
-    b.y+=b.dy;
-    if(b.y>canvas.height) bugs.splice(i,1);
+  for(let i=bugs.length-1;i>=0;i--){
+    const b=bugs[i]; b.y+=b.dy;
+    if(b.y>canvas.height){bugs.splice(i,1);continue;}
     if(hit(b,elf)&&controls && now>bossGraceUntil){bugs.splice(i,1);lose();}
-  });
+  }
 
-  spits.forEach((s,i)=>{
-    s.y+=s.dy;
-    if(s.y>canvas.height) spits.splice(i,1);
-    if(hit(s,elf)&&controls && now>bossGraceUntil){spits.splice(i,1);lose();}
-  });
+  for(let i=spits.length-1;i>=0;i--){
+    const sp=spits[i]; sp.y+=sp.dy;
+    if(sp.y>canvas.height){spits.splice(i,1);continue;}
+    if(hit(sp,elf)&&controls && now>bossGraceUntil){spits.splice(i,1);lose();}
+  }
 
   // update sparks (bug level)
   for(let i=sparks.length-1;i>=0;i--){
@@ -1115,13 +1129,17 @@ if(phase==='game'){
   }
 
   // arrows vs bugs
-  arrows.forEach((a,ai)=>bugs.forEach((b,bi)=>{
-    if(hit(a,b)){
-      playHit(); spawnSparks(b.x+b.w/2,b.y+b.h/2,7); arrows.splice(ai,1); bugs.splice(bi,1); score++; totalKills++;
-      bossProg = Math.min(BOSS_MAX, bossProg + BOSS_KILL_BONUS);
-      if(phase==='game' && bossProg>=BOSS_MAX) startBoss();
+  for(let ai=arrows.length-1;ai>=0;ai--){
+    for(let bi=bugs.length-1;bi>=0;bi--){
+      if(hit(arrows[ai],bugs[bi])){
+        playHit(); spawnSparks(bugs[bi].x+bugs[bi].w/2,bugs[bi].y+bugs[bi].h/2,7);
+        arrows.splice(ai,1); bugs.splice(bi,1); score++; totalKills++;
+        bossProg = Math.min(BOSS_MAX, bossProg + BOSS_KILL_BONUS);
+        if(phase==='game' && bossProg>=BOSS_MAX) startBoss();
+        break;
+      }
     }
-  }));
+  }
 
   // boss logic
   if(phase==='boss' && boss){
@@ -1146,13 +1164,13 @@ if(phase==='game'){
     }
 
     // arrows vs boss
-    arrows.forEach((a,ai)=>{
-      if(hit(a,boss)){
+    for(let ai=arrows.length-1;ai>=0;ai--){
+      if(hit(arrows[ai],boss)){
         playHit(); spawnSparks(boss.x+boss.w/2, boss.y+boss.h/2, 10); arrows.splice(ai,1);
         boss.hitFlash=20; bossHp--;
         if(bossHp<=0){ totalKills++; startFinalSequence(); }
       }
-    });
+    }
   }
 
   // страховка: как только порог достигнут — запускаем босса
@@ -1163,11 +1181,11 @@ if(phase==='game'){
 
 
 /* ── spawn skeletons (game2) ── */
-let skelFrame=0; setInterval(()=>skelFrame^=1,180);
+let skelFrame=0; let _skelFrameId=setInterval(()=>skelFrame^=1,180);
 
 
-let bugFrame=0; setInterval(()=>bugFrame^=1,220);
-setInterval(()=>{
+let bugFrame=0; let _bugFrameId=setInterval(()=>bugFrame^=1,220);
+function _skelSpawnFn(){
   if(phase!=='game2' || gameOver || transitioning) return;
 
   // limit totals so поле не захламляется
@@ -1200,10 +1218,11 @@ setInterval(()=>{
       frame:0, shotFlash:0
     });
   }
-}, 2000);
+}
+let _skelSpawnId=setInterval(_skelSpawnFn, 2000);
 
 
-setInterval(()=>{
+function _bugSpawnFn(){
   if(phase!=='game'||gameOver||transitioning) return;
   bugCnt++; const speed=1.5+Math.random()*2.5;
 
@@ -1217,7 +1236,8 @@ const LANE_LEFT=130, LANE_RIGHT=canvas.width-130;
            y:0,w:BW,h:BH,dy:speed};
   bugs.push(b);
   if(bugCnt%7===0) spits.push({x:Math.floor(b.x+b.w/2 - s(12)), y:b.y+b.h, w:s(24), h:s(24), dy:speed+2});
-},1000);
+}
+let _bugSpawnId=setInterval(_bugSpawnFn,1000);
 
 /* ── boss start ── */
 function startBoss(){
@@ -1272,7 +1292,7 @@ function updateBandits(){
     k.y += step + FORWARD;   // мировой дрейф + собственный шаг вперёд
     if(!k.switched && k.y > canvas.height*0.50){ k.switched = true; }
     if(k.y>canvas.height){ knights.splice(i,1); continue; }
-    if(hit(k,elf)){ gameOver=true; playGameOver(); }
+    if(hit(k,elf)){ lives=0; gameOver=true; onGameOver(); playGameOver(); }
   }
 
   // dagger rogues
@@ -1421,8 +1441,7 @@ function drawBandits(){
   }
 }
 
-// Spawners for bandits
-setInterval(()=>{
+function _banditSpawnFn(){
   if(phase!=='bandits' || gameOver || transitioning || necro || banditSpawnsStopped) return;
   // Knight: keep at most 1
   if(knights.length<1){ const x = Math.floor(130 + Math.random()*(canvas.width-260-48)); knights.push({x, y:-s(70/1.4), w:s(110), h:s(110), hp:5, switched:false}); }
@@ -1444,7 +1463,8 @@ setInterval(()=>{
     const ay = Math.floor(40 + Math.random()*100);
     mages.push({ x:ax, y:ay, w:s(48), h:s(64), hp:2, vx:(Math.random()<0.5?1:-1)*0.35, vy:(Math.random()<0.5?1:-1)*0.25, minX:130, maxX:canvas.width - 130 - s(48), minY:20, maxY:200, lastShot:0, shootCD: 1500 + Math.random()*1200, castFlash:0 });
   }
-}, 1400);
+}
+let _banditSpawnId=setInterval(_banditSpawnFn, 1400);
 
 // Necromancer boss
 function startNecro(){
@@ -1708,67 +1728,7 @@ const VN = {
 
 // Pages (0-based) -> array of slides -> array of lines
 
-const storyTextRU = {
-  0: [ // 001
-    ["Вернувшись домой, Мириэль не увидела Катарину возле дома.",
-     "Пройдя внутрь, она услышала только тишину."]
-  ],
-  1: [ // 002
-    ["В кухне всё ещё пылал огонь на плите, а на полу валялись осколки посуды.",
-     "Катарины нигде не было."]
-  ],
-  2: [ // 003
-    ["Поднявшись наверх, Мириэль заглянула в спальню."],
-    ["На кровати лежала записка."]
-  ],
-  3: [ // 004
-    ["Сердце Мириэль болезненно сжалось."]
-  ],
-  4: [ // 005
-    ["Мириэль нахмурилась. Она узнала эту эмблему.",
-     "Чёрная Элитра. Клан фанатиков и убийц."]
-  ],
-  5: [ // 006
-    [" Она сбежала вниз по лестнице, схватила оставленный у двери лук",
-     "и устремилась в лес спасать Катарину."]
-  ],
-  6: [ // 007
-    ["К вечеру она добралась до ущелья, за которым лежал лес."],
-    ["Едва она ступила несколько шагов,",
-     "как из мрака и тумана ущелья к ней потянулись бледные силуэты — мертвецы.",
-     "Скелеты."]
-  ],
-  8: [ // 009
-    ["Преодолев кишащее скелетами ущелье, Мириэль добралась до нужного места в лесу."],
-    ["На поляне она увидела костёр и сидящих вокруг него людей."],
-    ["Бандиты, маги, разбойники — и даже рыцарь в тяжёлых доспехах."]
-  ],
-  9: [ // 010
-    ["Когда эльфийка показалась в поле зрения, раздался низкий женский голос."],
-    ["На поляне появилась магичка в чёрной мантии с закрытым лицом."],
-    ["«Где моя подруга?» — гневно спросила Мириэль."],
-    ["В ответ магичка только злобно рассмеялась."]
-  ],
-  10: [ // 011
-    ["«Не всё так просто, дорогая», — язвительно усмехнулась магичка."],
-    ["«Вижу, ты справилась с моими слугами в ущелье»."],
-    ["«Некромантия — это чёрная магия, и ты за это поплатишься!» — ответила Мириэль, доставая стрелу."],
-    ["«Взять её, мальчики!» — скомандовала некромант, и её слуги бросились к Мириэль."]
-  ],
-  11: [ // 012
-    ["Некромант лежала на траве ничком."],
-    ["Мириэль подошла и перевернула её."],
-    ["«Отвечай, где моя Катарина? Зачем вы её похитили?»"],
-    ["Некромант прохрипела тихим голосом: «Уже поздно»."],
-    ["«Твоя подруга будет принесена в жертву нашему богу Элитре»."],
-    ["Умирающая некромант указала пальцем в сторону тропы и испустила дух."]
-  ],
-  12: [ // 013
-    ["Мириэль бросилась по тропинке в лес, но дорогу ей преградили огромные жуки."],
-    ["Щёлкая челюстями, они ринулись в атаку на эльфийку."],
-    ["Вдали виднелся огромный уродливый жук-монстр."]
-  ]
-};
+// (storyTextRU removed — using TEXT[lang].story via i18n system)
 
 
 // typing state
@@ -2145,11 +2105,7 @@ function drawReunion(){
 /* ── финальные слайды ── */
 
 // --- End pages text box ---
-const endTextRU = {
-  0: ["Утыканный стрелами, чудовищный монстр", "рухнул замертво на траву.", "Остальные разбежались."],
-  1: ["Эльфийка оглянулась и увидела", "бежащую к ней Катарину.", "Она сияла от радости."],
-  2: ["Мириэль бросилась ей навстречу", "и заключила её в свои объятия.", "«Пойдём домой», — сказала эльфийка,", "и поцеловала её."]
-};
+// (endTextRU removed — using TEXT[lang].end via i18n system)
 function drawEndBox(i){
   // печатаем построчно под теми же параметрами VN
   if(prevEndIdx !== i){ prevEndIdx = i; resetEndTyping(); }
@@ -2242,7 +2198,13 @@ function drawCredits(){
 function resetGame(){
   scrollBoneY=0; scrollBugY=0; boneDist=0; 
   resetTransitions();
-  gameOver=false; bossGraceUntil=0;
+  gameOver=false; bossGraceUntil=0; invincibleUntil=0;
+
+  // clear and recreate spawn intervals to prevent stacking
+  clearInterval(_skelSpawnId); clearInterval(_bugSpawnId); clearInterval(_banditSpawnId);
+  _skelSpawnId=setInterval(_skelSpawnFn, 2000);
+  _bugSpawnId=setInterval(_bugSpawnFn, 1000);
+  _banditSpawnId=setInterval(_banditSpawnFn, 1400);
 
   fade(musGame,0); fade(musBoss,0); fade(musStory,0); fade(musVictory,0); fade(musMenu,.6);
   phase='menu'; audioUnlocked=true; ignoreNextClick=false;
@@ -2260,6 +2222,7 @@ function resetGame(){
   arrows.length=0; bugs.length=0; spits.length=0; sparks.length=0; heartFx=null; skels.length=0; archers.length=0; boneShots.length=0; skelKills=0; lvlFade=0; lvlFadeDir=0; knights.length=0; rogues.length=0; thrownDaggers.length=0; mages.length=0; fireballs.length=0; banditDist=0; scrollBandY=0; necro=null;
   boss=null; bossHp=25; bossAppearing=true;
   bugDist=0; totalKills=0;
+  banditSpawnsStopped=false; lastRogueSpawn=0;
   end=null; reunion=null; endIdx=0; endFade=0; endFadeDir=0;
 }
 

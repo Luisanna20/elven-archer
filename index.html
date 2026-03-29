@@ -481,6 +481,8 @@ const endImg = [1,2,3].map(n=>I(`endpage00${n}.png`)); // endpage001..003
 const M=(src,vol=0)=>{const a=new Audio(src);a.loop=true;a.volume=vol;return a;};
 const musMenu =M('Main_menu.mp3');
 const musStory=M('Story_music.mp3');
+const musLevel1=M('Night  of Skeletons.mp3');
+const musLevel2=M('Forest Ambush.mp3');
 const musGame =M('Road.mp3');
 const musBoss =M('boss-fight.mp3');
 const musVictory=M('Victory.mp3');
@@ -507,6 +509,8 @@ function fade(a,to,step=0.02,dt=40){
 
 /* ── on game over: stop gameplay music ── */
 function onGameOver(){
+  try{ fade(musLevel1,0); }catch(e){}
+  try{ fade(musLevel2,0); }catch(e){}
   try{ fade(musGame,0); }catch(e){}
   try{ fade(musBoss,0); }catch(e){}
   try{ fade(musStory,0); }catch(e){}
@@ -637,7 +641,21 @@ function startTransition(title,next){
   transitioning=true;
   tr.active=true; tr.stage=0; tr.title=title; tr.next=next; tr.t0=performance.now();
   tr.alpha=0; tr.tAlpha=0;
-  if(next==='story'){ try{ fade(musGame,0); }catch(_){ } try{ fade(musVictory,0); }catch(_){ } try{ fade(musBoss,0); }catch(_){ } try{ fade(musStory,.6); }catch(_){ } } else { try{ fade(musStory,0); }catch(_){ } try{ fade(musVictory,0); }catch(_){ } try{ fade(musBoss,0); }catch(_){ } try{ fade(musGame,.6); }catch(_){ } }
+  if(next==='story'){
+    try{ fade(musLevel1,0); }catch(_){ }
+    try{ fade(musLevel2,0); }catch(_){ }
+    try{ fade(musGame,0); }catch(_){ }
+    try{ fade(musVictory,0); }catch(_){ }
+    try{ fade(musBoss,0); }catch(_){ }
+    try{ fade(musStory,.6); }catch(_){ }
+  } else {
+    try{ fade(musStory,0); }catch(_){ }
+    try{ fade(musVictory,0); }catch(_){ }
+    try{ fade(musBoss,0); }catch(_){ }
+    try{ fade(musLevel1, next==='game2' ? .4 : 0); }catch(_){ }
+    try{ fade(musLevel2, next==='bandits' ? .4 : 0); }catch(_){ }
+    try{ fade(musGame, next==='game' ? .4 : 0); }catch(_){ }
+  }
 }
 
 // Durations (ms)
@@ -811,7 +829,7 @@ document.addEventListener('keydown',e=>{
         musicMaster = Math.max(0, Math.min(1, musicMaster + delta));
         // re-apply current music volumes by nudging fade to its current value
         try{
-          [musMenu,musStory,musGame,musBoss,musVictory].forEach(a=>{
+          [musMenu,musStory,musLevel1,musLevel2,musGame,musBoss,musVictory].forEach(a=>{
             if(!a) return;
             if(musicMaster > 0) fade(a, a.volume>0 ? Math.min(1, a.volume/Math.max(0.01,musicMaster)) * musicMaster : 0);
             else fade(a, 0);
@@ -1469,7 +1487,7 @@ let _banditSpawnId=setInterval(_banditSpawnFn, 1400);
 // Necromancer boss
 function startNecro(){
   try{ arrows.length=0; thrownDaggers && (thrownDaggers.length=0); fireballs && (fireballs.length=0); }catch(_){}
- phase='necroBoss'; fade(musGame,0); fade(musBoss,.65); necro={x:canvas.width/2 - s(144)/2, y:-s(140/1.4), w:s(144), h:s(144), hurt:0, dir:'left', frame:0, animT:0}; necroHp=25; necroAppearing=true; necroCastT=0; }
+ phase='necroBoss'; fade(musLevel2,0); fade(musBoss,.35); necro={x:canvas.width/2 - s(144)/2, y:-s(140/1.4), w:s(144), h:s(144), hurt:0, dir:'left', frame:0, animT:0}; necroHp=25; necroAppearing=true; necroCastT=0; }
 
 function drawNecro(){
   if(!necro) return;
@@ -2206,7 +2224,7 @@ function resetGame(){
   _bugSpawnId=setInterval(_bugSpawnFn, 1000);
   _banditSpawnId=setInterval(_banditSpawnFn, 1400);
 
-  fade(musGame,0); fade(musBoss,0); fade(musStory,0); fade(musVictory,0); fade(musMenu,.6);
+  fade(musLevel1,0); fade(musLevel2,0); fade(musGame,0); fade(musBoss,0); fade(musStory,0); fade(musVictory,0); fade(musMenu,.6);
   phase='menu'; audioUnlocked=true; ignoreNextClick=false;
   idx=0; fadeScr=0; fadeDir=0; keys={}; lives=5; score=0; gameOver=false; lastShot=0; bugCnt=0; bossProg=0;
   // reset story flow so a new run always starts from page 001 -> Skeletons

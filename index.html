@@ -486,6 +486,18 @@ const musLevel2=M('Forest Ambush.mp3');
 const musGame =M('Road.mp3');
 const musBoss =M('boss-fight.mp3');
 const musVictory=M('Victory.mp3');
+const sNecroHaha = new Audio('Necro_haha.mp3'); sNecroHaha.loop = false; sNecroHaha.volume = .9;
+
+function hardStopAudio(a){
+  if(!a) return;
+  try{ if(a._fadeId){ clearInterval(a._fadeId); a._fadeId=null; } }catch(_e){}
+  try{ a.pause(); }catch(_e){}
+  try{ a.currentTime = 0; }catch(_e){}
+}
+function resetAllAudio(){
+  [musMenu,musStory,musLevel1,musLevel2,musGame,musBoss,musVictory,sNecroHaha].forEach(hardStopAudio);
+  try{ sNecroHaha.onended = null; }catch(_e){}
+}
 
 function fade(a,to,step=0.02,dt=40){
   // apply music master for non-zero targets
@@ -515,6 +527,7 @@ function onGameOver(){
   try{ fade(musBoss,0); }catch(e){}
   try{ fade(musStory,0); }catch(e){}
   try{ fade(musVictory,0); }catch(e){}
+  try{ hardStopAudio(sNecroHaha); }catch(e){}
 }
 
 /* ── sfx ── */
@@ -536,7 +549,7 @@ const sHitB =new Audio('bow_hit.wav');  sHitB.volume=.9;
 const playShot=()=>sShotB.cloneNode().play().catch(()=>{});
 const playHit =()=>sHitB.cloneNode().play().catch(()=>{});
 // --- extra SFX ---
-const sBone = new Audio('bone_crunch.wav'); sBone.volume = .9;
+const sBone = new Audio('bone_crunch.wav'); sBone.volume = .5;
 const sIron = new Audio('iron-hit.wav');   sIron.volume = .9;
 const playBone = ()=>{ try{ sBone.cloneNode().play().catch(()=>{}); }catch(_e){} };
 const playIron = ()=>{ try{ sIron.cloneNode().play().catch(()=>{}); }catch(_e){} };
@@ -554,10 +567,10 @@ const playFireBurst   = ()=>{ try{ sFireBurst.cloneNode().play().catch(()=>{}); 
 
 
 function applySFXMaster(){
-  const base = [sUghWAV, sUghMP3, sGameOver, sShotB, sHitB, sBone, sIron, sDaggerDeath, sKnightDeath, sMageDeath, sFireBurst];
+  const base = [sUghWAV, sUghMP3, sGameOver, sShotB, sHitB, sBone, sIron, sDaggerDeath, sKnightDeath, sMageDeath, sFireBurst, sNecroHaha];
   const baseVol = new Map([
     [sUghWAV,0.6],[sUghMP3,0.6],[sGameOver,0.8],[sShotB,0.55],[sHitB,0.9],
-    [sBone,0.9],[sIron,0.9],[sDaggerDeath,0.9],[sKnightDeath,0.9],[sMageDeath,0.9],[sFireBurst,0.8]
+    [sBone,0.5],[sIron,0.8],[sDaggerDeath,0.8],[sKnightDeath,0.8],[sMageDeath,0.8],[sFireBurst,0.8],[sNecroHaha,0.8]
   ]);
   base.forEach(a=>{ try{ a.volume = Math.max(0, Math.min(1, (baseVol.get(a)||a.volume) * sfxMaster)); }catch(_e){} });
 }
@@ -638,6 +651,7 @@ let transitioning=false;
 let tr={active:false, stage:0, title:'', next:'', t0:0, alpha:0, tAlpha:0};
 
 function startTransition(title,next){
+  setPaused(false);
   transitioning=true;
   tr.active=true; tr.stage=0; tr.title=title; tr.next=next; tr.t0=performance.now();
   tr.alpha=0; tr.tAlpha=0;
@@ -784,6 +798,27 @@ let bossGraceUntil=0; // grace period after boss spawn (ms timestamp)
 /* финальные переменные */
 let end=null, reunion=null, endIdx=0, endFade=0, endFadeDir=0;
 
+/* ── battle pause + boss intro ── */
+let isPaused = false;
+let necroIntro = null;
+const NECRO_POST_LAUGH_DELAY = 2000;
+const pauseCanvas = document.createElement('canvas');
+pauseCanvas.width = canvas.width; pauseCanvas.height = canvas.height;
+const pauseCtx = pauseCanvas.getContext('2d');
+function isBattlePhase(p=phase){ return p==='game2' || p==='bandits' || p==='necroBoss' || p==='game' || p==='boss'; }
+function canPauseBattle(){ return isBattlePhase() && !gameOver && !transitioning; }
+function setPaused(v){ isPaused = !!v; keys = {}; }
+function capturePauseFrame(){ try{ pauseCtx.clearRect(0,0,pauseCanvas.width,pauseCanvas.height); pauseCtx.drawImage(canvas,0,0); }catch(_e){} }
+function drawPauseOverlay(){
+  ctx.drawImage(pauseCanvas,0,0);
+  ctx.save();
+  ctx.fillStyle='rgba(0,0,0,0.48)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.textAlign='center'; ctx.fillStyle='#fff';
+  ctx.font='52px monospace'; ctx.fillText('PAUSED', canvas.width/2, canvas.height/2 - 10);
+  ctx.font='22px monospace'; ctx.fillText('ESC - resume', canvas.width/2, canvas.height/2 + 34);
+  ctx.restore();
+}
+
 /* ── unlock first audio gesture ── */
 function unlockAudio(e){
   if(audioUnlocked) return;
@@ -800,6 +835,12 @@ addEventListener('keydown',unlockAudio,{once:true});
 document.addEventListener('keydown',e=>{
   keys[e.key]=true;
 
+  if(e.key==='Escape' && canPauseBattle()){
+    setPaused(!isPaused);
+    return;
+  }
+  if(isPaused && isBattlePhase()) return;
+
   // quick restart after GAME OVER
   if(gameOver && ((phase==='game2')||(phase==='bandits')||(phase==='necroBoss')||(phase==='banditPostBoss')||(phase==='game')||(phase==='boss')) && (e.key==='r'||e.key==='R'||e.key==='Enter')){
     resetGame(); return;
@@ -811,7 +852,7 @@ document.addEventListener('keydown',e=>{
     else if(e.key==='ArrowDown'){ menuIdx = (menuIdx + 1) % menuItems.length; }
     else if(e.key==='Enter'){
       const sel = menuItems[menuIdx];
-      if(menuIdx===0){ phase='story'; fade(musMenu,0); fade(musStory,.6); }
+      if(menuIdx===0){ phase='story'; hardStopAudio(musStory); fade(musMenu,0); fade(musStory,.6); }
       else if(menuIdx===1){ phase='settings'; }
       else if(menuIdx===2){ phase='gallery'; }
       else if(menuIdx===3){ phase='creators'; }
@@ -862,12 +903,18 @@ document.addEventListener('keydown',e=>{
   }
 
   if(phase==='menu' && e.key==='Enter'){
-    phase='story'; fade(musMenu,0); fade(musStory,.6);
+    phase='story'; hardStopAudio(musStory); fade(musMenu,0); fade(musStory,.6);
   }
 
   // debug boss key removed for release
 
-  const canShoot=(phase==='game2')||(phase==='bandits')||(phase==='necroBoss')||(phase==='game')||(phase==='boss'&&!bossAppearing);
+  const canShoot = !isPaused && (
+    (phase==='game2') ||
+    (phase==='bandits') ||
+    (phase==='game') ||
+    (phase==='boss' && !bossAppearing) ||
+    (phase==='necroBoss' && !(necroIntro && necroIntro.active))
+  );
   if(canShoot && e.key===' ' && Date.now()-lastShot>shootCD){
     arrows.push({x:elf.x+elf.w/2 - s(8), y:elf.y, w:s(16), h:s(24), dy:-6});
     const t0 = performance.now();
@@ -994,6 +1041,7 @@ if(phase==='game2' && !transitioning){
   const now = performance.now();
   // --- Level 2: Skeletons ---
   if(phase==='game2' && !gameOver && !transitioning){
+    if(isPaused) return;
     // vertical scroll advance (skeleton level) — 5 циклов
     const _boneTarget = canvas.height * BONE_LOOPS_GOAL;
     const _boneStep = Math.min(SCROLL_BONE, Math.max(0, _boneTarget - boneDist));
@@ -1109,7 +1157,7 @@ if(phase==='game2' && !transitioning){
     }
 }
   
-  if((phase!=='game'&&phase!=='boss')||gameOver||transitioning) return;
+  if((phase!=='game'&&phase!=='boss')||gameOver||transitioning||isPaused) return;
 
 // --- Bug level: вертикальный скролл «вверх» по циклам; стоп на боссе
 if(phase==='game'){
@@ -1276,7 +1324,23 @@ function startFinalSequence(){
 
 /* ── Bandit Lair update & draw ── */
 function updateBandits(){
-  if(gameOver || transitioning) return;
+  if(gameOver || transitioning || isPaused) return;
+
+  const now = performance.now();
+  if(phase==='necroBoss' && necroIntro && necroIntro.active){
+    if(!necroIntro.laughDone){
+      const durMs = (Number.isFinite(sNecroHaha.duration) && sNecroHaha.duration>0) ? sNecroHaha.duration*1000 : 0;
+      const endedByClock = necroIntro.fallbackAt && now >= necroIntro.fallbackAt;
+      const endedByAudio = !!sNecroHaha.ended || (!!durMs && sNecroHaha.currentTime*1000 >= durMs-80);
+      if(endedByClock || endedByAudio){
+        necroIntro.laughDone = true;
+        necroIntro.combatAt = now + NECRO_POST_LAUGH_DELAY;
+      }
+    }else if(now >= (necroIntro.combatAt||0)){
+      necroIntro.active = false;
+      fade(musBoss,.35);
+    }
+  }
 
   // vertical scroll advance (5 loops), then spawn boss
   const target = canvas.height * 3;
@@ -1288,11 +1352,10 @@ function updateBandits(){
     if(mobsLeft===0){ startNecro(); }
   }
 
-  const now = performance.now();
-
   // player movement
-  if(keys.ArrowLeft  && elf.x>130){ elf.x -= 5; elf.img=elfL; elf.face='L'; }
-  if(keys.ArrowRight && elf.x+elf.w<canvas.width-130){ elf.x += 5; elf.img=elfR; elf.face='R'; }
+  const controlsLocked = (phase==='necroBoss' && necroIntro && necroIntro.active);
+  if(!controlsLocked && keys.ArrowLeft  && elf.x>130){ elf.x -= 5; elf.img=elfL; elf.face='L'; }
+  if(!controlsLocked && keys.ArrowRight && elf.x+elf.w<canvas.width-130){ elf.x += 5; elf.img=elfR; elf.face='R'; }
 
   // arrows travel
   for(let i=arrows.length-1;i>=0;i--){
@@ -1308,7 +1371,7 @@ function updateBandits(){
     const HOMING=0.6, FORWARD=0.25;  // tweak here
     k.x += dirX * HOMING;
     k.y += step + FORWARD;   // мировой дрейф + собственный шаг вперёд
-    if(!k.switched && k.y > canvas.height*0.50){ k.switched = true; }
+    if(!k.switched && k.y > canvas.height*0.40){ k.switched = true; }
     if(k.y>canvas.height){ knights.splice(i,1); continue; }
     if(hit(k,elf)){ lives=0; gameOver=true; onGameOver(); playGameOver(); }
   }
@@ -1487,12 +1550,35 @@ let _banditSpawnId=setInterval(_banditSpawnFn, 1400);
 // Necromancer boss
 function startNecro(){
   try{ arrows.length=0; thrownDaggers && (thrownDaggers.length=0); fireballs && (fireballs.length=0); }catch(_){}
- phase='necroBoss'; fade(musLevel2,0); fade(musBoss,.35); necro={x:canvas.width/2 - s(144)/2, y:-s(140/1.4), w:s(144), h:s(144), hurt:0, dir:'left', frame:0, animT:0}; necroHp=25; necroAppearing=true; necroCastT=0; }
+  phase='necroBoss';
+  fade(musLevel2,0); fade(musBoss,0);
+  hardStopAudio(sNecroHaha);
+  necro={x:canvas.width/2 - s(144)/2, y:-s(140/1.4), w:s(144), h:s(144), hurt:0, dir:'left', frame:0, animT:0};
+  necroHp=25; necroAppearing=true; necroCastT=0;
+  necroIntro = { active:true, laughDone:false, combatAt:0, fallbackAt:performance.now()+2600 };
+  try{
+    sNecroHaha.onended = ()=>{
+      if(phase==='necroBoss' && necroIntro && necroIntro.active && !necroIntro.laughDone){
+        necroIntro.laughDone = true;
+        necroIntro.combatAt = performance.now() + NECRO_POST_LAUGH_DELAY;
+      }
+    };
+    sNecroHaha.currentTime = 0;
+    sNecroHaha.play().catch(()=>{
+      if(necroIntro && necroIntro.active && !necroIntro.laughDone){
+        necroIntro.laughDone = true;
+        necroIntro.combatAt = performance.now() + NECRO_POST_LAUGH_DELAY;
+      }
+    });
+  }catch(_e){
+    if(necroIntro){ necroIntro.laughDone = true; necroIntro.combatAt = performance.now() + NECRO_POST_LAUGH_DELAY; }
+  }
+}
 
 function drawNecro(){
   if(!necro) return;
-  if(necroAppearing){ necro.y += 2; if(necro.y > 80){ necroAppearing=false; } }
-  else{
+  if(necroAppearing){ necro.y += 2; if(necro.y > 80){ necro.y = 80; necroAppearing=false; } }
+  else if(!(necroIntro && necroIntro.active)){
     const MIN_X=160, MAX_X=canvas.width-160, SPEED=1.8;
     necro.x += (necro.dir==='left' ? -SPEED : SPEED);
     if(necro.x<MIN_X){necro.x=MIN_X; necro.dir='right';}
@@ -2063,7 +2149,7 @@ function drawPostBoss(){
 /* ── reunion: встреча и объятия ── */
 function startReunion(){
   phase='reunion';
-  arrows.length=0; bugs.length=0; spits.length=0; sparks.length=0; heartFx=null; skels.length=0; archers.length=0; boneShots.length=0; skelKills=0; lvlFade=0; lvlFadeDir=0; knights.length=0; rogues.length=0; thrownDaggers.length=0; mages.length=0; fireballs.length=0; banditDist=0; scrollBandY=0; necro=null;
+  arrows.length=0; bugs.length=0; spits.length=0; sparks.length=0; heartFx=null; skels.length=0; archers.length=0; boneShots.length=0; skelKills=0; lvlFade=0; lvlFadeDir=0; knights.length=0; rogues.length=0; thrownDaggers.length=0; mages.length=0; fireballs.length=0; banditDist=0; scrollBandY=0; necro=null; necroIntro=null;
   const meetY=Math.floor(canvas.height*0.58);
   reunion={mode:'runToMeet', speed:3.2, meetY, kat:{x:Math.floor(elf.x+elf.w/2-24), y:-64, w:48, h:48}, hugT:0};
 }
@@ -2193,6 +2279,11 @@ function drawCredits(){
 /* ── main loop ── */
 (function loop(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(isPaused && isBattlePhase()){
+    drawPauseOverlay();
+    requestAnimationFrame(loop);
+    return;
+  }
   if(phase==='menu') drawMenu();
   else if(phase==='story') drawStory();
   else if(phase==='game2'){ update(); drawGame2(); }
@@ -2209,12 +2300,14 @@ function drawCredits(){
   else if(phase==='credits'){ drawCredits(); }
   updateTransition();
   drawTransitionOverlay();
+  if(isBattlePhase() && !transitioning && !gameOver){ capturePauseFrame(); }
   requestAnimationFrame(loop);
 })();
 
 /* ── reset ── */
 function resetGame(){
   scrollBoneY=0; scrollBugY=0; boneDist=0; 
+  setPaused(false);
   resetTransitions();
   gameOver=false; bossGraceUntil=0; invincibleUntil=0;
 
@@ -2224,7 +2317,8 @@ function resetGame(){
   _bugSpawnId=setInterval(_bugSpawnFn, 1000);
   _banditSpawnId=setInterval(_banditSpawnFn, 1400);
 
-  fade(musLevel1,0); fade(musLevel2,0); fade(musGame,0); fade(musBoss,0); fade(musStory,0); fade(musVictory,0); fade(musMenu,.6);
+  resetAllAudio();
+  fade(musMenu,.6);
   phase='menu'; audioUnlocked=true; ignoreNextClick=false;
   idx=0; fadeScr=0; fadeDir=0; keys={}; lives=5; score=0; gameOver=false; lastShot=0; bugCnt=0; bossProg=0;
   // reset story flow so a new run always starts from page 001 -> Skeletons

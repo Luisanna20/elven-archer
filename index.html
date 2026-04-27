@@ -391,8 +391,19 @@ const fireballTex = [ I('fireball_01.png'), I('fireball_02.png') ];
 
 // === Bug level (Stage 3) ===
 const bugFr = [ I('bug.png'), I('bug1.png') ];
-const bossIdle = I('boss001.png');
-const bossHit  = I('boss002.png');
+const bossStand = I('001_Bag Boss_stand.png');
+const bossWalkLeft = I('002_Bag Boss_left.png');
+const bossWalkRight = I('003_Bag Boss_right.png');
+const bossCast = I('004_Bag Boss_Cast.png');
+const BOSS_BIG_CAST_INTERVAL = 10000;
+const BOSS_BIG_CAST_WAVE_DELAY = 5000;
+const BOSS_BIG_CAST_RECOVER = 700;
+const BOSS_BIG_CAST_COUNT = 5;
+const BOSS_BIG_CAST_SPREAD = Math.PI / 3;
+bossStand.groundCropH = 377;
+bossWalkLeft.groundCropH = 381;
+bossWalkRight.groundCropH = 363;
+bossCast.groundCropH = 361;
 
 // === Human mage (Stage 2 bandit mage) ===
 // small spark for hits/FX
@@ -1183,8 +1194,8 @@ if(phase==='game'){
   }
 
   for(let i=spits.length-1;i>=0;i--){
-    const sp=spits[i]; sp.y+=sp.dy;
-    if(sp.y>canvas.height){spits.splice(i,1);continue;}
+    const sp=spits[i]; sp.x+=(sp.dx||0); sp.y+=(sp.dy||0);
+    if(sp.y>canvas.height || sp.y+sp.h<0 || sp.x>canvas.width || sp.x+sp.w<0){spits.splice(i,1);continue;}
     if(hit(sp,elf)&&controls && now>bossGraceUntil){spits.splice(i,1);lose();}
   }
 
@@ -1212,19 +1223,29 @@ if(phase==='game'){
     if(boss.hitFlash>0) boss.hitFlash--; // decay hit flash
     if(bossAppearing){
       boss.y+=2;
-      if(boss.y>100){ bossAppearing=false; boss.dir='left'; 
-}
+      if(boss.y>100){
+        boss.y=100;
+        bossAppearing=false;
+        boss.dir='left';
+        boss.nextBigCastAt = now + BOSS_BIG_CAST_INTERVAL;
+      }
     }else{
-      const MIN_X=210, MAX_X=510, SPEED=2;
-      boss.x += boss.dir==='left'? -SPEED: SPEED;
-      if(boss.x<MIN_X){boss.x=MIN_X;boss.dir='right';}
-      if(boss.x>MAX_X){boss.x=MAX_X;boss.dir='left';}
+      if(!isBossBigCasting() && now >= boss.nextBigCastAt) startBossBigCast(now);
 
-      if(Math.random()<0.01){
-        const n=Math.random()<0.5?1:2;
-        for(let k=0;k<n;k++){
-          const dx=k?12:-12;
-          spits.push({x:boss.x+boss.w/2+dx,y:boss.y+boss.h,w:24,h:24,dy:3+Math.random()*2});
+      if(isBossBigCasting()){
+        updateBossBigCast(now);
+      }else{
+        const MIN_X=210, MAX_X=510, SPEED=2;
+        boss.x += boss.dir==='left'? -SPEED: SPEED;
+        if(boss.x<MIN_X){boss.x=MIN_X;boss.dir='right';}
+        if(boss.x>MAX_X){boss.x=MAX_X;boss.dir='left';}
+
+        if(Math.random()<0.01){
+          const n=Math.random()<0.5?1:2;
+          for(let k=0;k<n;k++){
+            const dx=k?12:-12;
+            spits.push({x:boss.x+boss.w/2+dx,y:boss.y+boss.h,w:24,h:24,dy:3+Math.random()*2});
+          }
         }
       }
     }
@@ -1233,6 +1254,7 @@ if(phase==='game'){
     for(let ai=arrows.length-1;ai>=0;ai--){
       if(hit(arrows[ai],boss)){
         playHit(); spawnSparks(boss.x+boss.w/2, boss.y+boss.h/2, 10); arrows.splice(ai,1);
+        if(isBossBigCasting()) continue;
         boss.hitFlash=20; bossHp--;
         if(bossHp<=0){ totalKills++; startFinalSequence(); }
       }
@@ -1306,11 +1328,82 @@ const LANE_LEFT=130, LANE_RIGHT=canvas.width-130;
 let _bugSpawnId=setInterval(_bugSpawnFn,1000);
 
 /* ── boss start ── */
+function isBossBigCasting(){
+  return !!(boss && boss.bigCast && boss.bigCast.active);
+}
+
+function bossCurrentSprite(){
+  if(!boss) return bossStand;
+  if(isBossBigCasting()) return bossCast;
+  if(bossAppearing) return bossStand;
+  return boss.dir==='right' ? bossWalkRight : bossWalkLeft;
+}
+
+function drawGroundedBossSprite(img, x, y, w, h){
+  if(!ready(img)){
+    ctx.fillStyle='#351b35';
+    ctx.fillRect(x,y,w,h);
+    return;
+  }
+  const sw = img.naturalWidth || img.width;
+  const sh = img.groundCropH || img.naturalHeight || img.height;
+  ctx.drawImage(img, 0, 0, sw, sh, x, y, w, h);
+}
+
+function startBossBigCast(now=performance.now()){
+  if(!boss) return;
+  boss.bigCast = { active:true, wavesDone:0, nextWaveAt:now, endAt:0 };
+}
+
+function finishBossBigCast(now=performance.now()){
+  if(!boss || !boss.bigCast) return;
+  boss.bigCast.active = false;
+  boss.bigCast.endAt = 0;
+  boss.nextBigCastAt = now + BOSS_BIG_CAST_INTERVAL;
+}
+
+function spawnBossPoisonWave(){
+  if(!boss) return;
+  const count = BOSS_BIG_CAST_COUNT;
+  const size = s(28);
+  const cx = boss.x + boss.w/2;
+  const cy = boss.y + boss.h*0.62;
+  const tx = elf.x + elf.w/2;
+  const ty = elf.y + elf.h/2;
+  const base = Math.atan2(ty - cy, tx - cx);
+  const speed = s(3.6);
+  const step = count>1 ? BOSS_BIG_CAST_SPREAD/(count-1) : 0;
+
+  for(let i=0;i<count;i++){
+    const angle = base - BOSS_BIG_CAST_SPREAD/2 + step*i;
+    spits.push({
+      x:cx-size/2, y:cy-size/2, w:size, h:size,
+      dx:Math.cos(angle)*speed, dy:Math.sin(angle)*speed,
+      big:true
+    });
+  }
+}
+
+function updateBossBigCast(now){
+  if(!isBossBigCasting()) return false;
+  const cast = boss.bigCast;
+
+  if(cast.wavesDone<2 && now>=cast.nextWaveAt){
+    spawnBossPoisonWave();
+    cast.wavesDone++;
+    if(cast.wavesDone<2) cast.nextWaveAt = now + BOSS_BIG_CAST_WAVE_DELAY;
+    else cast.endAt = now + BOSS_BIG_CAST_RECOVER;
+  }
+
+  if(cast.endAt && now>=cast.endAt) finishBossBigCast(now);
+  return true;
+}
+
 function startBoss(){
   if(phase==='boss') return;           // идемпотентность
   bossGraceUntil = performance.now()+800; // ~0.8s safety window
   phase='boss'; fade(musGame,0); fade(musBoss,.65);
-  boss={x:canvas.width/2 - s(180)/2, y:-s(180), w:s(180), h:s(180), hitFlash:0, name:'Elitra'};
+  boss={x:canvas.width/2 - s(180)/2, y:-s(180), w:s(180), h:s(180), hitFlash:0, name:'Elitra', dir:'left', nextBigCastAt:0, bigCast:{active:false,wavesDone:0,nextWaveAt:0,endAt:0}};
   bossHp=25; bossAppearing=true;
 }
 
@@ -1786,37 +1879,61 @@ function drawGallery(){
 function drawCreators(){
   drawStart();
   const W=canvas.width, H=canvas.height;
-  const boxW = Math.floor(W*0.74), pad=24;
+  const boxW = Math.floor(W*0.78), pad=24;
   const lines = t('ui.creators_lines') || ['Credits'];
-  const boxH = pad*2 + lines.length*34;
+  const innerW = boxW - pad*2;
+
+  ctx.save();
+  ctx.font='22px monospace';
+  const drawLines = [];
+  lines.forEach((tline)=>{
+    if(!String(tline).trim()){
+      drawLines.push({text:'', blank:true});
+      return;
+    }
+    wrapTextToWidth(String(tline), innerW).forEach(part=>drawLines.push({text:part, blank:false}));
+  });
+
+  const lineH=28, blankH=16;
+  const contentH = drawLines.reduce((sum,line)=>sum+(line.blank?blankH:lineH),0);
+  const boxH = pad*2 + contentH;
   const boxX = Math.floor((W-boxW)/2);
   const boxY = H - UI_BOTTOM_MARGIN - boxH;
 
-  ctx.save();
   ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(boxX, boxY, boxW, boxH);
   ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.strokeRect(boxX+0.5, boxY+0.5, boxW-1, boxH-1);
-  ctx.font='24px monospace'; ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#fff';
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#fff';
 
   let y = boxY + pad;
-  lines.forEach((tline)=>{ ctx.fillText(tline, W/2, y); y+=34; });
+  drawLines.forEach((line)=>{
+    if(line.blank){ y+=blankH; return; }
+    ctx.fillText(line.text, W/2, y);
+    y+=lineH;
+  });
   ctx.restore();
 }
 
-function drawContinueHint() {
+function drawContinueHint(bounds) {
   const MARGIN = 40;              // отступ от краёв
-  const RECT_W = 220, RECT_H = 30;
+  const RECT_H = 30;
 
-  const x = canvas.width  - RECT_W - MARGIN;
-  const y = canvas.height - RECT_H - MARGIN;
+  const right = bounds ? bounds.x + bounds.w - MARGIN : canvas.width - MARGIN;
+  const bottom = bounds ? bounds.y + bounds.h - MARGIN : canvas.height - MARGIN;
+  const label = ''+t('ui.cont')+'';
+
+  ctx.font = '22px monospace';
+  const maxRectW = (bounds ? bounds.w : canvas.width) - MARGIN*2;
+  const RECT_W = Math.min(maxRectW, Math.max(220, Math.ceil(ctx.measureText(label).width) + 24));
+  const x = right - RECT_W;
+  const y = bottom - RECT_H;
 
   ctx.fillStyle = 'rgba(0,0,0,.45)';
   ctx.fillRect(x, y, RECT_W, RECT_H);
 
   ctx.fillStyle = '#fff';
-  ctx.font = '22px monospace';
   ctx.textAlign = 'right';
   ctx.textBaseline = 'bottom';    // базовая линия текста — нижний край
-  ctx.fillText(''+t('ui.cont')+'', canvas.width - MARGIN, canvas.height - MARGIN);
+  ctx.fillText(label, right, bottom);
 }
 
 
@@ -2088,14 +2205,14 @@ function drawGame(){
   // boss
   if(phase==='boss' && boss){
     if(boss.hitFlash>0) boss.hitFlash--; // decay hit flash
-    const img = (boss.hitFlash>0) ? bossHit : bossIdle;
+    const img = bossCurrentSprite();
     drawShadow(boss.x, boss.y, boss.w, boss.h, 0.90, 0.22, 10);
-    if(ready(img)) ctx.drawImage(img, boss.x, boss.y, boss.w, boss.h);
+    drawGroundedBossSprite(img, boss.x, boss.y, boss.w, boss.h);
     // optional HP bar
     const barW=220, barH=10, p = Math.max(0, Math.min(1, bossHp/25));
     ctx.fillStyle='#333'; ctx.fillRect(boss.x, boss.y-16, barW, barH);
     ctx.fillStyle='#e55'; ctx.fillRect(boss.x, boss.y-16, Math.floor(barW*p), barH);
-    ctx.strokeStyle='#fff'; ctx.strokeRect(boss.x, boss.y-16, barW, barH);
+    ctx.strokeStyle=isBossBigCasting()?'#aaff66':'#fff'; ctx.strokeRect(boss.x, boss.y-16, barW, barH);
     ctx.fillStyle='#fff'; ctx.font='18px monospace'; ctx.textAlign='center';
     ctx.fillText(t('boss.elitra'), boss.x+boss.w/2, boss.y-26);
   }
@@ -2141,10 +2258,11 @@ function drawPostBoss(){
     if(end.bossAlpha<=0){ end=null; startReunion(); return; }
   }
 
-  const img=(end.mode==='blink' && boss._blinkOn)?bossHit:bossIdle;
+  const img=(end.mode==='blink' && boss._blinkOn)?bossCast:bossStand;
   ctx.save(); ctx.globalAlpha=end.bossAlpha??1;
   drawShadow(boss.x,boss.y,boss.w,boss.h,0.90,0.22,10);
-  ctx.drawImage(img,boss.x,boss.y,boss.w,boss.h); ctx.restore();
+  drawGroundedBossSprite(img,boss.x,boss.y,boss.w,boss.h);
+  ctx.restore();
 }
 /* ── reunion: встреча и объятия ── */
 function startReunion(){
@@ -2210,7 +2328,7 @@ function drawReunion(){
 
 // --- End pages text box ---
 // (endTextRU removed — using TEXT[lang].end via i18n system)
-function drawEndBox(i){
+function drawEndBox(i, frame){
   // печатаем построчно под теми же параметрами VN
   if(prevEndIdx !== i){ prevEndIdx = i; resetEndTyping(); }
   const lines = endText[i] || [];
@@ -2225,34 +2343,38 @@ function drawEndBox(i){
   const H = Math.floor(canvas.height*VN.boxHeightRatio);
   const Y = canvas.height - H;
   ctx.save();
-  ctx.fillStyle = VN.boxColor; ctx.fillRect(0,Y,canvas.width,H);
+  const boxX = frame ? frame.x : 0;
+  const boxW = frame ? frame.w : canvas.width;
+  ctx.fillStyle = VN.boxColor; ctx.fillRect(boxX,Y,boxW,H);
 
   ctx.fillStyle = VN.textColor; ctx.font = VN.font;
   ctx.textAlign='left'; ctx.textBaseline='top';
 
   const shown = flat.substring(0, Math.floor(endTypePos));
-  const maxW  = canvas.width - VN.padding*2;
+  const maxW  = boxW - VN.padding*2;
   const toDraw = wrapTextToWidth(shown, maxW);
 
-  let x=VN.padding, y=Y+VN.padding;
+  let x=boxX+VN.padding, y=Y+VN.padding;
   for(let k=0;k<toDraw.length;k++){ ctx.fillText(toDraw[k], x, y); y+=VN.lineHeight; }
   ctx.restore();
 
   // «'+t('ui.cont')+'» — только когда допечатали
   const done = (Math.floor(endTypePos) >= flat.length) && flat.length>0;
-  if(done && !transitioning) drawContinueHint();
+  if(done && !transitioning) drawContinueHint(frame);
 }
 function drawEndSlides(){
   ctx.fillStyle='#000'; ctx.fillRect(0,0,canvas.width,canvas.height);
   const img=endImg[endIdx];
+  let frame=null;
   if(ready(img)){
     const scale=Math.min(canvas.width/img.width, canvas.height/img.height);
     const dw=Math.floor(img.width*scale), dh=Math.floor(img.height*scale);
     const dx=Math.floor((canvas.width-dw)/2), dy=Math.floor((canvas.height-dh)/2);
     ctx.drawImage(img,dx,dy,dw,dh);
+    frame={x:dx,y:dy,w:dw,h:dh};
   }
   // печатающийся бокс
-  drawEndBox(endIdx);
+  drawEndBox(endIdx, frame);
 
   if(endFadeDir!==0){
     endFade+=endFadeDir*0.05; endFade=Math.max(0,Math.min(1,endFade));

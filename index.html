@@ -59,7 +59,7 @@ const TEXT = {
       settings_sfx: "SFX",
       settings_language: "Language",
       settings_hint: "←/→ change • ESC — back",
-      gallery_empty: "No images (Image01..05.png)",
+      gallery_empty: "No images (Image01..05.jpg)",
       gallery_hint: "←/→ browse • ESC — back",
       cont: "Click to continue",
       game_over: "GAME OVER",
@@ -115,7 +115,7 @@ const TEXT = {
       settings_sfx: "SFX",
       settings_language: "Язык",
       settings_hint: "←/→ изменить • ESC — назад",
-      gallery_empty: "Нет изображений (Image01..05.png)",
+      gallery_empty: "Нет изображений (Image01..05.jpg)",
       gallery_hint: "←/→ листать • ESC — назад",
       cont: "Кликните, чтобы продолжить",
       game_over: "ИГРА ОКОНЧЕНА",
@@ -218,7 +218,7 @@ const TEXT = {
       settings_sfx: "SFX",
       settings_language: "Мова",
       settings_hint: "←/→ змінити • ESC — назад",
-      gallery_empty: "Немає зображень (Image01..05.png)",
+      gallery_empty: "Немає зображень (Image01..05.jpg)",
       gallery_hint: "←/→ гортати • ESC — назад",
       cont: "Клацніть, щоб продовжити",
       game_over: "КІНЕЦЬ ГРИ",
@@ -410,7 +410,7 @@ bossCast.groundCropH = 361;
 
 
 
-const startImg=I('StartPage.png'),  bgImg=I('background.png');
+const startImg=I('StartPage.jpg'),  bgImg=I('background.png');
 // Bandit level background
 const bgBandit = I('background_01.png');
 
@@ -477,8 +477,10 @@ function drawElfAnimated(){
 }
 
 function IStory(n){
-  const img = I(`StoryPage${String(n).padStart(3,'0')}.png`);
-  img.onerror = ()=>{ img.onerror=null; img.src = `StoryPage_${n}.png`; };
+  const id = String(n).padStart(3,'0');
+  const ext = n>=9 ? 'jpg' : 'png';
+  const img = I(`StoryPage${id}.${ext}`);
+  img.onerror = ()=>{ img.onerror=null; img.src = `StoryPage${id}.${ext==='jpg'?'png':'jpg'}`; };
   return img;
 }
 const storyImg = Array.from({length:13},(_,i)=>IStory(i+1));
@@ -486,7 +488,7 @@ const storyImg = Array.from({length:13},(_,i)=>IStory(i+1));
 /* тут перебираем возможные имена файлов */
 const kat = loadOneOf(['katarina.png','Katarina.png','katarina.PNG','Katarina.PNG']);
 const hug = loadOneOf(['ket_miri.png','Ket_Miri.png','ket+miri.png','Ket+Miri.png','ket_miri.PNG','Ket+Miri.PNG']);
-const endImg = [1,2,3].map(n=>I(`endpage00${n}.png`)); // endpage001..003
+const endImg = [1,2,3].map(n=>I(`endpage00${n}.jpg`)); // endpage001..003
 
 /* ── music ── */
 const M=(src,vol=0)=>{const a=new Audio(src);a.loop=true;a.volume=vol;return a;};
@@ -497,25 +499,47 @@ const musLevel2=M('Forest Ambush.mp3');
 const musGame =M('Road.mp3');
 const musBoss =M('boss-fight.mp3');
 const musVictory=M('Victory.mp3');
+const MUSIC_TRACKS = [musMenu,musStory,musLevel1,musLevel2,musGame,musBoss,musVictory];
 const sNecroHaha = new Audio('Necro_haha.mp3'); sNecroHaha.loop = false; sNecroHaha.volume = .9;
 
 function hardStopAudio(a){
   if(!a) return;
   try{ if(a._fadeId){ clearInterval(a._fadeId); a._fadeId=null; } }catch(_e){}
+  try{ a._musicBaseTarget = 0; }catch(_e){}
   try{ a.pause(); }catch(_e){}
   try{ a.currentTime = 0; }catch(_e){}
 }
 function resetAllAudio(){
-  [musMenu,musStory,musLevel1,musLevel2,musGame,musBoss,musVictory,sNecroHaha].forEach(hardStopAudio);
+  [...MUSIC_TRACKS,sNecroHaha].forEach(hardStopAudio);
   try{ sNecroHaha.onended = null; }catch(_e){}
 }
 
+function clamp01(v){
+  v = Number(v);
+  if(!Number.isFinite(v)) return 0;
+  return Math.max(0, Math.min(1, v));
+}
+
+function applyMusicMaster(){
+  MUSIC_TRACKS.forEach(a=>{
+    if(!a) return;
+    const baseTarget = Number.isFinite(a._musicBaseTarget) ? a._musicBaseTarget : 0;
+    fade(a, baseTarget);
+  });
+}
+
 function fade(a,to,step=0.02,dt=40){
-  // apply music master for non-zero targets
-  if(to>0){ to = Math.max(0, Math.min(1, to * musicMaster)); }
+  if(!a) return;
+  const baseTarget = clamp01(to);
+  a._musicBaseTarget = baseTarget;
+  to = clamp01(baseTarget * musicMaster);
   try{ if(a._fadeId){ clearInterval(a._fadeId); a._fadeId=null; } }catch(_){}
-  // clamp target
-  if(to<0) to=0; else if(to>1) to=1;
+  if(Math.abs(a.volume - to) < 0.001){
+    a.volume = to;
+    if(to===0){ try{ a.pause(); }catch(_e){} }
+    else if(a.paused){ try{ a.play().catch(()=>{}); }catch(_e){} }
+    return;
+  }
   const dir = to > a.volume ? 1 : -1;
   if(dir===1 && a.paused){ try{ a.currentTime = a.currentTime||0; a.play().catch(()=>{}); }catch(_e){} }
   a._fadeId = setInterval(()=>{
@@ -605,7 +629,7 @@ let sfxMaster   = 1.00; // 0..1
 let settingsIdx = 0;    // 0: music, 1: sfx, 2: language
 
 /* gallery state */
-const galleryImgs = [1,2,3,4,5].map(n=>I(`Image0${n}.png`));
+const galleryImgs = [1,2,3,4,5].map(n=>I(`Image0${n}.jpg`));
 let galleryIdx = 0;
 function readyAny(list){ return list.some(im=>ready(im)); }
 
@@ -879,14 +903,7 @@ document.addEventListener('keydown',e=>{
       const delta = (e.key==='ArrowRight') ? 0.05 : -0.05;
       if(settingsIdx===0){
         musicMaster = Math.max(0, Math.min(1, musicMaster + delta));
-        // re-apply current music volumes by nudging fade to its current value
-        try{
-          [musMenu,musStory,musLevel1,musLevel2,musGame,musBoss,musVictory].forEach(a=>{
-            if(!a) return;
-            if(musicMaster > 0) fade(a, a.volume>0 ? Math.min(1, a.volume/Math.max(0.01,musicMaster)) * musicMaster : 0);
-            else fade(a, 0);
-          });
-        }catch(_){}
+        try{ applyMusicMaster(); }catch(_){}
       }else if(settingsIdx===1){
         sfxMaster = Math.max(0, Math.min(1, sfxMaster + delta));
         applySFXMaster();
@@ -1820,6 +1837,14 @@ function drawSettings(){
   const labels = [t('ui.settings_music'), t('ui.settings_sfx'), t('ui.settings_language')];
   for(let i=0;i<rows;i++){
     const y = boxY + pad + lineH*(i+0.5);
+    if(i===settingsIdx){
+      const rowX = boxX + 6;
+      const rowY = y - lineH/2 + 3;
+      const rowW = boxW - 12;
+      const rowH = lineH - 6;
+      ctx.fillStyle='rgba(255,255,255,0.10)';
+      ctx.fillRect(rowX, rowY, rowW, rowH);
+    }
     ctx.fillStyle = (i===settingsIdx)?'#fff':'#ddd';
     ctx.fillText(labels[i], boxX + 18, y);
 
